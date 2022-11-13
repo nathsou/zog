@@ -1,0 +1,22 @@
+{
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug zog",
+      "program": "${workspaceFolder:zog}/.build/debug/zog",
+      "args": [],
+      "cwd": "${workspaceFolder:zog}",
+      "preLaunchTask": "swift: Build Debug zog"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Release zog",
+      "program": "${workspaceFolder:zog}/.build/release/zog",
+      "args": [],
+      "cwd": "${workspaceFolder:zog}",
+      "preLaunchTask": "swift: Build Release zog"
+    }
+  ]
+}

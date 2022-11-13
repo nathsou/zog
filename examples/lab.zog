@@ -1,0 +1,16 @@
+
+let range = (start, end, step) -> {
+    mut i = start;
+    
+    while i < end {
+        yield i
+        i = i + step
+    }
+}
+
+let f = x -> 3 * x
+let yo = if f(7 + 1) > 21 { 1 } else { 2 }
+
+for n in range(0, 10, 1) {
+    print(n)
+}
