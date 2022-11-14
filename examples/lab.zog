@@ -1,10 +1,10 @@
 
 let range = (start, end, step) -> {
-    mut i = start;
+    mut i = start
     
     while i < end {
         yield i
-        i = i + step
+        i += step
     }
 }
 

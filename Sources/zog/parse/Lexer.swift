@@ -82,32 +82,22 @@ public struct Lexer {
     }
 
     mutating func match(_ char: Character) -> Bool {
-        if let c = peek() {
-            if c == char {
-                _ = advance()
-                return true
-            }
+        if let c = peek(), c == char {
+            _ = advance()
+            return true
         }
 
         return false
     }
 
     mutating func parseNum() -> Token {
-        while let c = peek() {
-            if c.isDigit {
-                _ = advance()
-            } else {
-                break
-            }
+        while let c = peek(), c.isDigit {
+            _ = advance()
         }
 
         if match(".") {
-            while let c = peek() {
-                if c.isDigit {
-                    _ = advance()
-                } else {
-                    break
-                }
+            while let c = peek(), c.isDigit {
+                _ = advance()
             }
         }
 
@@ -115,12 +105,8 @@ public struct Lexer {
     }
 
     mutating func parseIdentOrKeyword() -> Token {
-        while let c = peek() {
-            if c.isAlphaNum {
-                _ = advance()
-            } else {
-                break
-            }
+        while let c = peek(), c.isAlphaNum {
+            _ = advance()
         }
 
         let lexeme = String(chars[startIndex...(index - 1)])
@@ -166,24 +152,16 @@ public struct Lexer {
     }
 
     mutating func skipSpaces() {
-        while let c = peek() {
-            if c.isWhitespace {
-                _ = advance()
-            } else {
-                break
-            }
+        while let c = peek(), c.isWhitespace {
+            _ = advance()
         }
 
         startIndex = index
     }
 
     mutating func skipLine() {
-        while let c = peek() {
-            if !c.isNewline {
-                _ = advance()
-            } else {
-                break
-            }
+        while let c = peek(), !c.isNewline {
+            _ = advance()
         }
     }
     
@@ -225,24 +203,15 @@ public struct Lexer {
                 case ">":
                     return .symbol(match("=") ? .geq : .gtr)
                 case "-":
-                    return .symbol(match(">") ? .arrow : .minus)
+                    return .symbol(match(">") ? .arrow : match("=") ? .minuseq : .minus)
                 case ".":
-                    switch peek() {
-                        case ".":
-                            return .symbol(match(".") ? .dotdotdot : .dotdot)
-                        default:
-                            return .symbol(.dot)
-                    }
+                    return .symbol(match(".") ? match(".") ? .dotdotdot : .dotdot : .dot)
                 case "+":
-                    return .symbol(.plus)
+                    return .symbol(match("=") ? .pluseq : .plus)
                 case "*":
-                    return .symbol(.star)
+                    return .symbol(match("=") ? .stareq : .star)
                 case "/":
-                    if match("/") {
-                        return next()
-                    } else {
-                        return .symbol(.slash)
-                    }
+                    return match("/") ? next() :.symbol(match("=") ? .slasheq : .slash)
                 case "%":
                     return .symbol(.percent)
                 case "\"":

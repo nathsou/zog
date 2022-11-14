@@ -223,12 +223,8 @@ public class Parser {
         try consume(.symbol(.lcurlybracket))
         var stmts: [Stmt] = []
         
-        while let _ = peek() {
-            if let stmt = attempt(statementThrowing) {
-                stmts.append(stmt)
-            } else {
-                break
-            }
+        while let stmt = attempt(statementThrowing) {
+            stmts.append(stmt)
         }
         
         try consume(.symbol(.rcurlybracket))
@@ -265,12 +261,13 @@ public class Parser {
         return try assignment()
     }
     
-    // assignment -> fun '=' assignment | fun
+    // assignment -> fun ('=' | '+=' | '-=' | '*=' | '/=') assignment | fun
     func assignment() throws -> Expr {
         let lhs = try fun()
         
-        if match(.symbol(.eq)) {
-            var isValidTarget: Bool
+        if match(.symbol(.eq), .symbol(.pluseq), .symbol(.minuseq), .symbol(.stareq), .symbol(.slasheq)) {
+            let isValidTarget: Bool
+            
             switch lhs {
             case .Var(_):
                 isValidTarget = true
@@ -282,9 +279,24 @@ public class Parser {
                 throw ParserError.invalidAssignmentTarget
             }
             
+            let op: AssignmentOperator
+            
+            switch previous() {
+            case .symbol(.pluseq):
+                op = .plusEq
+            case .symbol(.minuseq):
+                op = .minusEq
+            case .symbol(.stareq):
+                op = .timesEq
+            case .symbol(.slasheq):
+                op = .divideEq
+            default:
+                op = .eq
+            }
+            
             let rhs = try assignment()
         
-            return .Assign(lhs, rhs)
+            return .Assignment(lhs, op, rhs)
         }
         
         return lhs
@@ -464,14 +476,10 @@ public class Parser {
         if match(.symbol(.lparen)) {
             var args: [Expr] = []
             
-            while true {
-                if let expr = attempt(expression) {
-                    args.append(expr)
-                    
-                    if !match(.symbol(.comma)) {
-                        break
-                    }
-                } else {
+            while let expr = attempt(expression) {
+                args.append(expr)
+                
+                if !match(.symbol(.comma)) {
                     break
                 }
             }
@@ -519,12 +527,8 @@ public class Parser {
     func block() throws -> Expr {
         var stmts: [Stmt] = []
         
-        while let _ = peek() {
-            if let stmt = attempt(statementThrowing) {
-                stmts.append(stmt)
-            } else {
-                break
-            }
+        while let stmt = attempt(statementThrowing) {
+            stmts.append(stmt)
         }
         
         if match(.symbol(.rcurlybracket)) {

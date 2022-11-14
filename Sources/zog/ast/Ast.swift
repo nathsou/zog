@@ -88,6 +88,29 @@ public enum BinaryOperator: CustomStringConvertible {
     }
 }
 
+public enum AssignmentOperator: CustomStringConvertible {
+    case eq
+    case plusEq
+    case minusEq
+    case timesEq
+    case divideEq
+    
+    public var description: String {
+        switch self {
+        case .eq:
+            return "="
+        case .plusEq:
+            return "+="
+        case .minusEq:
+            return "-="
+        case .timesEq:
+            return "*="
+        case .divideEq:
+            return "/="
+        }
+    }
+}
+
 func indent(_ str: String) -> String {
     return str.split(separator: "\n").map({ s in "    \(s)" }).joined(separator: "\n")
 }
@@ -102,7 +125,7 @@ public indirect enum Expr: CustomStringConvertible {
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
     case If(cond: Expr, thenExpr: Expr, elseExpr: Expr?)
-    case Assign(Expr, Expr)
+    case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
 
     public var description: String {
@@ -141,8 +164,8 @@ public indirect enum Expr: CustomStringConvertible {
             } else {
                 return "if \(cond) \(thenExpr)"
             }
-        case let .Assign(lhs, rhs):
-            return "\(lhs) = \(rhs)"
+        case let .Assignment(lhs, op, rhs):
+            return "\(lhs) \(op) \(rhs)"
         case let .Tuple(exprs):
             return "(\(exprs.map({ e in e.description }).joined(separator: ", "))"
         }
