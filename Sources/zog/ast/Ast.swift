@@ -1,3 +1,10 @@
+//
+//  Ast.swift
+//
+//
+//  Created by Nathan on 12/11/2022.
+//
+
 import Foundation
 
 public enum Literal: CustomStringConvertible {
@@ -112,7 +119,10 @@ public enum AssignmentOperator: CustomStringConvertible {
 }
 
 func indent(_ str: String) -> String {
-    return str.split(separator: "\n").map({ s in "    \(s)" }).joined(separator: "\n")
+    return str
+        .split(separator: "\n")
+        .map({ s in "    \(s)" })
+        .joined(separator: "\n")
 }
 
 public indirect enum Expr: CustomStringConvertible {

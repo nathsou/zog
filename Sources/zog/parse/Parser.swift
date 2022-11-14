@@ -1,3 +1,10 @@
+//
+//  Parser.swift
+//
+//
+//  Created by Nathan on 13/11/2022.
+//
+
 import Foundation
 
 public class Parser {
@@ -36,7 +43,7 @@ public class Parser {
     func match(_ tokens: Token...) -> Bool {
         for token in tokens {
             if check(token) {
-                _ = advance()
+                advance()
                 return true
             }
         }
@@ -44,18 +51,15 @@ public class Parser {
         return false
     }
     
-    func advance() -> Token? {
-        if let prev = peek() {
+    func advance() {
+        if index < tokens.count {
             index += 1
-            return prev
         }
-        
-        return .none
     }
     
     func consume(_ token: Token, error: ParserError) throws {
         if check(token) {
-            _ = advance()
+            advance()
             return
         }
         
@@ -68,7 +72,7 @@ public class Parser {
     
     func identifier() throws -> String {
         if case .identifier(let n) = peek() {
-            _ = advance()
+            advance()
             return n
         }
         
@@ -90,7 +94,7 @@ public class Parser {
     }
     
     func synchronize() {
-        _ = advance()
+        advance()
         
         while let token = peek() {
             if case .symbol(.semicolon) = previous() {
@@ -98,22 +102,14 @@ public class Parser {
             }
             
             switch token {
-            case .keyword(.Let):
-                return
-            case .keyword(.Mut):
-                return
-            case .keyword(.While):
-                return
-            case .keyword(.For):
-                return
-            case .keyword(.Return):
-                return
-            case .keyword(.Yield):
-                return
-            case .keyword(.Break):
-                return
-            default:
-                _ = advance()
+            case .keyword(.Let): return
+            case .keyword(.Mut): return
+            case .keyword(.While): return
+            case .keyword(.For): return
+            case .keyword(.Return): return
+            case .keyword(.Yield): return
+            case .keyword(.Break): return
+            default: advance()
             }
         }
     }
@@ -122,6 +118,7 @@ public class Parser {
         program()
     }
     
+    // prog -> stmt*
     func program() -> [Stmt] {
         var stmts: [Stmt] = []
         
@@ -132,7 +129,6 @@ public class Parser {
         return stmts
     }
     
-    // stmt -> letStmt | 'return' expr? | 'break' | exprStmt
     func statement() -> Stmt {
         statementStartIndex = index
         
@@ -153,34 +149,35 @@ public class Parser {
         }
     }
     
+    // stmt -> letStmt | 'return' expr? | 'break' | exprStmt
     func statementThrowing() throws -> Stmt {
         switch peek() {
         case .keyword(.Let):
-            _ = advance()
+            advance()
             return try letStmt(isMut: false)
         case .keyword(.Mut):
-            _ = advance()
+            advance()
             return try letStmt(isMut: true)
         case .keyword(.While):
-            _ = advance()
+            advance()
             return try whileStmt()
         case .keyword(.For):
-            _ = advance()
+            advance()
             return try forStmt()
         case .keyword(.Return):
-            _ = advance()
+            advance()
             let expr = attempt(expression)
             try consume(.symbol(.semicolon))
             
             return .Return(expr)
         case .keyword(.Yield):
-            _ = advance()
+            advance()
             let expr = try expression()
             try consume(.symbol(.semicolon))
             
             return .Yield(expr)
         case .keyword(.Break):
-            _ = advance()
+            advance()
             try consume(.symbol(.semicolon))
             return .Break
         default:
@@ -249,13 +246,9 @@ public class Parser {
         if match(.keyword(.If)) {
             let cond = try expression()
             let thenExpr = try expression()
+            let elseExpr: Expr? = match(.keyword(.Else)) ? try expression() : .none
             
-            if match(.keyword(.Else)) {
-                let elseExpr = try expression()
-                return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
-            }
-            
-            return .If(cond: cond, thenExpr: thenExpr, elseExpr: .none)
+            return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
         }
         
         return try assignment()
@@ -309,7 +302,7 @@ public class Parser {
             
             if match(.symbol(.lparen)) {
                 while case .identifier(let arg) = peek() {
-                    _ = advance()
+                    advance()
                     args.append(arg)
                     
                     if !match(.symbol(.comma)) {
@@ -319,7 +312,7 @@ public class Parser {
                 
                 try consume(.symbol(.rparen))
             } else if case .identifier(let arg) = peek() {
-                _ = advance()
+                advance()
                 args.append(arg)
             } else {
                 return .none
@@ -496,28 +489,28 @@ public class Parser {
     func primary() throws -> Expr {
         switch peek() {
         case .num(let x):
-            _ = advance()
+            advance()
             return .Literal(.num(x))
         case.bool(let q):
-            _ = advance()
+            advance()
             return .Literal(.bool(q))
         case .str(let s):
-            _ = advance()
+            advance()
             return .Literal(.str(s))
         case .keyword(.True):
-            _ = advance()
+            advance()
             return .Literal(.bool(true))
         case .keyword(.False):
-            _ = advance()
+            advance()
             return .Literal(.bool(false))
         case .identifier(let n):
-            _ = advance()
+            advance()
             return .Var(n)
         case .symbol(.lparen):
-            _ = advance()
+            advance()
             return try tupleOrParensOrUnit()
         case .symbol(.lcurlybracket):
-            _ = advance()
+            advance()
             return try block()
         default:
             throw ParserError.expectedExpression
@@ -546,11 +539,12 @@ public class Parser {
         var exprs: [Expr] = []
         
         while let _ = peek() {
-            let expr = try expression()
-            exprs.append(expr)
-            
-            if !match(.symbol(.comma)) {
-                break
+            if let expr = attempt(expression) {
+                exprs.append(expr)
+                
+                if !match(.symbol(.comma)) {
+                    break
+                }
             }
         }
         
