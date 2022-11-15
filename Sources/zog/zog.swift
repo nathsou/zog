@@ -8,11 +8,11 @@ public struct zog {
             let tokens = lexer.lex()
             let parser = Parser.init(tokens: tokens)
             let prog = parser.parse()
-            
+
             for (error, start, end) in parser.errors {
                 print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")
             }
-        
+
             for stmt in prog {
                 print(stmt)
             }

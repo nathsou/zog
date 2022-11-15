@@ -1,6 +1,6 @@
 //
 //  ParserError.swift
-//  
+//
 //
 //  Created by Nathan on 13/11/2022.
 //
@@ -14,7 +14,7 @@ public enum ParserError: Error, CustomStringConvertible, Equatable {
     case expectedIdentifier
     case invalidAssignmentTarget
     case expected(Token)
-    
+
     public var description: String {
         switch self {
         case .unexepectedToken(let t):

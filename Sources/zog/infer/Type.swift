@@ -1,6 +1,6 @@
 //
 //  Type.swift
-//  
+//
 //
 //  Created by Nathan on 14/11/2022.
 //
@@ -11,7 +11,7 @@ public typealias TyVarId = UInt
 
 class TyContext {
     static var nextTyVarId: TyVarId = 0
-    
+
     public static func freshTyVarId() -> TyVarId {
         let id = nextTyVarId
         nextTyVarId += 1
@@ -22,7 +22,7 @@ class TyContext {
 public enum TyVar: Equatable, CustomStringConvertible {
     case unbound(id: TyVarId, level: UInt)
     case link(Ty)
-    
+
     public var description: String {
         switch self {
         case let .unbound(id, _):
@@ -31,7 +31,7 @@ public enum TyVar: Equatable, CustomStringConvertible {
             return ty.description
         }
     }
-    
+
     public static func fresh(level: UInt) -> TyVar {
         return .unbound(id: TyContext.freshTyVarId(), level: level)
     }
@@ -39,19 +39,19 @@ public enum TyVar: Equatable, CustomStringConvertible {
 
 public class Ref<T: Equatable>: Equatable {
     var ref: T
-    
+
     init(_ ref: T) {
         self.ref = ref
     }
-    
+
     public static func == (lhs: Ref<T>, rhs: Ref<T>) -> Bool {
         return lhs.ref == rhs.ref
     }
-    
+
     public static func ~= (lhs: T, rhs: Ref<T>) -> Bool {
         return rhs.ref ~= lhs
     }
-    
+
     public static func ~= (lhs: Ref<T>, rhs: T) -> Bool {
         return lhs.ref ~= rhs
     }
@@ -61,23 +61,23 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     case variable(Ref<TyVar>)
     case const(String, [Ty])
     case fun([Ty], Ty)
-    
+
     static var num: Ty {
         return .const("num", [])
     }
-    
+
     static var str: Ty {
         return .const("str", [])
     }
-    
+
     static var bool: Ty {
         return .const("bool", [])
     }
-    
+
     public func tuple(_ elems: [Ty]) -> Ty {
         return .const("tuple", elems)
     }
-    
+
     public var description: String {
         switch self {
         case let .variable(tyVar):
@@ -88,14 +88,14 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
             return "(\(args.map({ "\($0)" }).joined(separator: ", "))) -> \(ret)"
         }
     }
-    
+
     public func deref() -> Ty {
         if case let .variable(tyVar) = self, case let .link(ty) = tyVar.ref {
             let res = ty.deref()
             tyVar.ref = .link(res)
             return res
         }
-        
+
         return self
     }
 }
@@ -123,6 +123,6 @@ public func unify(_ s: Ty, _ t: Ty) -> TypeError? {
             return TypeError.cannotUnify(s, t)
         }
     }
-    
+
     return .none
 }

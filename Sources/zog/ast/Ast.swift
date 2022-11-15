@@ -21,7 +21,7 @@ public enum Literal: CustomStringConvertible {
             if x - floor(x) < Float64.ulpOfOne {
                 return Int(x).description
             }
-            
+
             return x.description
         case .str(let s):
             return "\"\(s)\""
@@ -37,10 +37,8 @@ public enum UnaryOperator: CustomStringConvertible {
 
     public var description: String {
         switch self {
-            case .logicalNegation:
-                return "!"
-            case .arithmeticNegation:
-                return "-"
+        case .logicalNegation: return "!"
+        case .arithmeticNegation: return "-"
         }
     }
 }
@@ -63,34 +61,20 @@ public enum BinaryOperator: CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .add:
-            return "+"
-        case .sub:
-            return "-"
-        case .mul:
-            return "*"
-        case .div:
-            return "/"
-        case .mod:
-            return "%"
-        case .pow:
-            return "**"
-        case .equ:
-            return "=="
-        case .neq:
-            return "!="
-        case .lss:
-            return "<"
-        case .leq:
-            return "<="
-        case .gtr:
-            return ">"
-        case .geq:
-            return ">="
-        case .and:
-            return "&&"
-        case .or:
-            return "||"
+        case .add: return "+"
+        case .sub: return "-"
+        case .mul: return "*"
+        case .div: return "/"
+        case .mod: return "%"
+        case .pow: return "**"
+        case .equ: return "=="
+        case .neq: return "!="
+        case .lss: return "<"
+        case .leq: return "<="
+        case .gtr: return ">"
+        case .geq: return ">="
+        case .and: return "&&"
+        case .or: return "||"
         }
     }
 }
@@ -101,25 +85,21 @@ public enum AssignmentOperator: CustomStringConvertible {
     case minusEq
     case timesEq
     case divideEq
-    
+
     public var description: String {
         switch self {
-        case .eq:
-            return "="
-        case .plusEq:
-            return "+="
-        case .minusEq:
-            return "-="
-        case .timesEq:
-            return "*="
-        case .divideEq:
-            return "/="
+        case .eq: return "="
+        case .plusEq: return "+="
+        case .minusEq: return "-="
+        case .timesEq: return "*="
+        case .divideEq: return "/="
         }
     }
 }
 
 func indent(_ str: String) -> String {
-    return str
+    return
+        str
         .split(separator: "\n")
         .map({ s in "    \(s)" })
         .joined(separator: "\n")
@@ -154,7 +134,7 @@ public indirect enum Expr: CustomStringConvertible {
             if args.count == 1 {
                 return "\(args[0]) -> \(body)"
             }
-            
+
             return "(\(args.joined(separator: ", "))) -> \(body)"
         case let .Call(f, args):
             return "\(f)(\(args.map({ e in e.description }).joined(separator: ", ")))"
@@ -163,7 +143,8 @@ public indirect enum Expr: CustomStringConvertible {
                 if stmts.isEmpty {
                     return "{ \(ret) }"
                 } else {
-                    return "{\n\(stmts.map({ s in indent(s.description) }).joined(separator: "\n"))\(ret.description)\n}"
+                    return
+                        "{\n\(stmts.map({ s in indent(s.description) }).joined(separator: "\n"))\(ret.description)\n}"
                 }
             } else {
                 return "{\n\(stmts.map({ s in indent(s.description) }).joined(separator: "\n"))\n}"
@@ -191,7 +172,7 @@ public enum Stmt: CustomStringConvertible {
     case Yield(Expr)
     case Break
     case Error(ParserError, span: (Int, Int))
-    
+
     public var description: String {
         switch self {
         case let .Expr(expr):
@@ -201,9 +182,11 @@ public enum Stmt: CustomStringConvertible {
         case let .Let(mut: true, name, val):
             return "mut \(name) = \(val)"
         case let .While(cond, body):
-            return "while \(cond) {\n\(body.map({ s in indent(s.description) }).joined(separator: "\n"))\n}"
+            return
+                "while \(cond) {\n\(body.map({ s in indent(s.description) }).joined(separator: "\n"))\n}"
         case let .For(name, iterator, body):
-            return "for \(name) in \(iterator) {\n\(body.map({ s in indent(s.description) }).joined(separator: "\n"))\n}"
+            return
+                "for \(name) in \(iterator) {\n\(body.map({ s in indent(s.description) }).joined(separator: "\n"))\n}"
         case .Return(.none):
             return "return"
         case let .Return(.some(ret)):
