@@ -23,10 +23,20 @@ public enum TyVar: Equatable, CustomStringConvertible {
     case unbound(id: TyVarId, level: UInt)
     case link(Ty)
 
+    public static func showTyVarId(_ id: TyVarId) -> String {
+        let char = UnicodeScalar(65 + Int(id % 26))!
+
+        if id > 26 {
+            return "\(char)\(id / 26)"
+        } else {
+            return "\(char)"
+        }
+    }
+
     public var description: String {
         switch self {
         case let .unbound(id, _):
-            return "var(\(id)"
+            return TyVar.showTyVarId(id)
         case let .link(ty):
             return ty.description
         }
@@ -100,29 +110,69 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     }
 }
 
+func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) -> TypeError? {
+    func go(_ ty: Ty) throws {
+        switch ty {
+        case let .variable(v):
+            switch v.ref {
+            case let .link(t):
+                try go(t)
+            case let .unbound(id: otherId , level: otherLvl):
+                if otherId == id {
+                    throw TypeError.recursiveType(id, ty)
+                }
+
+                if otherLvl > level {
+                    v.ref = .unbound(id: otherId, level: level)
+                }
+         }
+        case let .const(_, args):
+            for arg in args {
+                try go(arg)
+            }
+        case let .fun(args, ret):
+            for arg in args {
+                try go(arg)
+            }
+
+            try go(ret)
+        }
+    }
+    
+    do {
+        try go(ty)
+    } catch let error as TypeError {
+        return error
+    } catch {}
+    
+    return nil
+}
+
+// see https://github.com/tomprimozic/type-systems
 public func unify(_ s: Ty, _ t: Ty) -> TypeError? {
-    var eqs = [((s, t))]
+    var eqs = [(s, t)]
     while let (s, t) = eqs.popLast() {
-        switch (s.deref(), t.deref()) {
+        switch (s, t) {
         case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
             eqs.append(contentsOf: zip(args1, args2))
         case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
             eqs.append(contentsOf: zip(args1, args2))
             eqs.append((ret1, ret2))
-        case let (.variable(v), _):
+        case let (.variable(v), ty), let (ty, .variable(v)):
             switch v.ref {
-            case .unbound(_, _):
-                // TODO: occurs check
-                v.ref = .link(t)
-            case .link(let to):
-                eqs.append((to, t))
+            case let .unbound(id, lvl):
+                if let err = occursCheckAdjustLevels(id: id, level: lvl, ty: ty) {
+                    return err
+                }
+                
+                v.ref = .link(ty)
+            case let .link(to):
+                eqs.append((to, ty))
             }
-        case (_, .variable(_)):
-            eqs.append((t, s))
         default:
             return TypeError.cannotUnify(s, t)
         }
     }
 
-    return .none
+    return nil
 }

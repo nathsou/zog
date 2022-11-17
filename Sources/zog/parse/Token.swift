@@ -70,7 +70,7 @@ public enum Keyword: String {
         case "or": return .Or
         case "true": return .True
         case "false": return .False
-        default: return .none
+        default: return nil
         }
     }
 }

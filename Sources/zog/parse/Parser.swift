@@ -22,7 +22,7 @@ public class Parser {
 
     func peek() -> Token? {
         guard index < tokens.count else {
-            return .none
+            return nil
         }
 
         return tokens[index].token
@@ -89,7 +89,7 @@ public class Parser {
             // backtrack
             index = initialIndex
             statementStartIndex = initialStatementIndex
-            return .none
+            return nil
         }
     }
 
@@ -120,7 +120,7 @@ public class Parser {
 
     // prog -> stmt*
     func program() -> [Stmt] {
-        var stmts: [Stmt] = []
+        var stmts = [Stmt]()
 
         while let _ = peek() {
             stmts.append(statement())
@@ -141,11 +141,7 @@ public class Parser {
             synchronize()
             return .Error(error, span: (start, end))
         } catch {
-            let start = tokens[statementStartIndex].start
-            let end = tokens[index].end
-            errors.append((.expectedStatement, start: start, end: end))
-            synchronize()
-            return .Error(.expectedStatement, span: (start, end))
+            return .Error(.expectedStatement, span: (0, 0))
         }
     }
 
@@ -218,7 +214,7 @@ public class Parser {
     // stmtListBlock -> '{' stmt* '}'
     func statementListBlock() throws -> [Stmt] {
         try consume(.symbol(.lcurlybracket))
-        var stmts: [Stmt] = []
+        var stmts = [Stmt]()
 
         while let stmt = attempt(statementThrowing) {
             stmts.append(stmt)
@@ -246,7 +242,7 @@ public class Parser {
         if match(.keyword(.If)) {
             let cond = try expression()
             let thenExpr = try expression()
-            let elseExpr: Expr? = match(.keyword(.Else)) ? try expression() : .none
+            let elseExpr: Expr? = match(.keyword(.Else)) ? try expression() : nil
 
             return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
         }
@@ -300,7 +296,7 @@ public class Parser {
     // fun -> ('(' (identifier (',' identifier)*)? ')' | identifier) '->' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
-            var args: [String] = []
+            var args = [String]()
 
             if match(.symbol(.lparen)) {
                 while case .identifier(let arg) = peek() {
@@ -317,7 +313,7 @@ public class Parser {
                 advance()
                 args.append(arg)
             } else {
-                return .none
+                return nil
             }
 
             try consume(.symbol(.arrow))
@@ -469,7 +465,7 @@ public class Parser {
         let lhs = try primary()
 
         if match(.symbol(.lparen)) {
-            var args: [Expr] = []
+            var args = [Expr]()
 
             while let expr = attempt(expression) {
                 args.append(expr)
@@ -520,14 +516,14 @@ public class Parser {
     }
 
     func block() throws -> Expr {
-        var stmts: [Stmt] = []
+        var stmts = [Stmt]()
 
         while let stmt = attempt(statementThrowing) {
             stmts.append(stmt)
         }
 
         if match(.symbol(.rcurlybracket)) {
-            return .Block(stmts, ret: .none)
+            return .Block(stmts, ret: nil)
         }
 
         let ret = try expression()
@@ -538,7 +534,7 @@ public class Parser {
 
     // tupleOrParensOrUnit -> unit | parens | tuple
     func tupleOrParensOrUnit() throws -> Expr {
-        var exprs: [Expr] = []
+        var exprs = [Expr]()
 
         while let _ = peek() {
             if let expr = attempt(expression) {

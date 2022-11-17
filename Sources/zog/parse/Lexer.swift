@@ -36,7 +36,7 @@ public struct Lexer {
 
     func peek() -> Character? {
         guard index >= 0, index < chars.count else {
-            return .none
+            return nil
         }
 
         return chars[index]
@@ -67,7 +67,7 @@ public struct Lexer {
             return c
         }
 
-        return .none
+        return nil
     }
 
     mutating func match(_ char: Character) -> Bool {
@@ -108,7 +108,7 @@ public struct Lexer {
     }
 
     mutating func parseString() -> Token {
-        var chars: [Character] = []
+        var chars = [Character]()
 
         while let c = peek() {
             _ = advance()
@@ -151,7 +151,7 @@ public struct Lexer {
 
     mutating func next() -> Token? {
         if index == chars.count {
-            return .none
+            return nil
         }
 
         skipSpaces()
@@ -194,11 +194,11 @@ public struct Lexer {
                     return parseIdentOrKeyword()
                 }
 
-                return .none
+                return nil
             }
         }
 
-        return .none
+        return nil
     }
 
     public mutating func lex() -> [TokenWithPos] {

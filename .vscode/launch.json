@@ -5,7 +5,7 @@
       "request": "launch",
       "name": "Debug zog",
       "program": "${workspaceFolder:zog}/.build/debug/zog",
-      "args": [],
+      "args": ["${workspaceFolder}/examples/lab.zog"],
       "cwd": "${workspaceFolder:zog}",
       "preLaunchTask": "swift: Build Debug zog"
     },

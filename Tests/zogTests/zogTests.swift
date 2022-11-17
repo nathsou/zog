@@ -43,4 +43,12 @@ final class zogTests: XCTestCase {
 
         XCTAssertNotNil(unify(s, t))
     }
+    
+    func testUnifyRecursiveType() {
+        let v = Ty.variable(Ref(.unbound(id: 0, level: 0)))
+        let s = Ty.const("Rec", [v])
+        
+        
+        XCTAssertNotNil(unify(v, s))
+    }
 }

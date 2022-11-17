@@ -139,7 +139,7 @@ public indirect enum Expr: CustomStringConvertible {
         case let .Call(f, args):
             return "\(f)(\(args.map({ e in e.description }).joined(separator: ", ")))"
         case let .Block(stmts, ret):
-            if let ret = ret {
+            if let ret {
                 if stmts.isEmpty {
                     return "{ \(ret) }"
                 } else {
@@ -187,7 +187,7 @@ public enum Stmt: CustomStringConvertible {
         case let .For(name, iterator, body):
             return
                 "for \(name) in \(iterator) {\n\(body.map({ s in indent(s.description) }).joined(separator: "\n"))\n}"
-        case .Return(.none):
+        case .Return(nil):
             return "return"
         case let .Return(.some(ret)):
             return "return \(ret)"
