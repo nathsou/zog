@@ -37,7 +37,7 @@ extension Expr {
                 bodyEnv.declare(varName: arg, ty: ty)
             }
             
-            let retTy = Ty.freshVar(level: level)
+            let retTy = isIterator ? Ty.iterator(Ty.freshVar(level: level)) : Ty.freshVar(level: level)
             Env.pushFunc(retTy: retTy)
             var actualRetTy = try body.infer(bodyEnv, level)
             if isIterator {
@@ -170,10 +170,10 @@ extension Stmt {
             break
         case let .Yield(expr):
             let exprTy = try expr.infer(env, level)
-            if let funcRetTy = Env.funcReturnTy() {
-                try unify(.iterator(exprTy), funcRetTy)
+            if case let .const("iter", args) = Env.funcReturnTy(), args.count == 1 {
+                try unify(exprTy, args[0])
             } else {
-                throw TypeError.cannotYieldOutsideFunctionBody
+                throw TypeError.cannotYieldOutsideIteratorBody
             }
         case .Error(_, _):
             break

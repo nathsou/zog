@@ -12,7 +12,7 @@ public enum TypeError: Error, CustomStringConvertible, Equatable {
     case recursiveType(TyVarId, Ty)
     case unknownVariable(String)
     case cannotReturnOutsideFunctionBody
-    case cannotYieldOutsideFunctionBody
+    case cannotYieldOutsideIteratorBody
 
     public var description: String {
         switch self {
@@ -23,9 +23,9 @@ public enum TypeError: Error, CustomStringConvertible, Equatable {
         case let .unknownVariable(v):
             return "Unknown variable \"\(v)\""
         case .cannotReturnOutsideFunctionBody:
-            return "Cannot use return outside a function body"
-        case .cannotYieldOutsideFunctionBody:
-            return "Cannot use yield outside a function body"
+            return "'return' can only be used inside a function body"
+        case .cannotYieldOutsideIteratorBody:
+            return "'yield' can only be used inside an iterator declaration"
         }
     }
 }
