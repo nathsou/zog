@@ -19,9 +19,57 @@ class TyContext {
     }
 }
 
+public class Env: CustomStringConvertible {
+    let parent: Env?
+    var vars = [String:Ty]()
+    static var functionReturnTyStack = [Ty]()
+    
+    init() {
+        parent = nil
+    }
+    
+    init(parent: Env) {
+        self.parent = parent
+    }
+    
+    public func lookup(varName: String) -> Ty? {
+        if let ty = vars[varName] {
+            return ty
+        }
+        
+        return parent?.lookup(varName: varName)
+    }
+    
+    public func declare(varName: String, ty: Ty) {
+        vars[varName] = ty
+    }
+    
+    public func child() -> Env {
+        return Env.init(parent: self)
+    }
+    
+    public static func pushFunc(retTy: Ty) {
+        Env.functionReturnTyStack.append(retTy)
+    }
+    
+    public static func popFunc() {
+        _ = Env.functionReturnTyStack.popLast()
+    }
+    
+    public static func funcReturnTy() -> Ty? {
+        return Env.functionReturnTyStack.last
+    }
+    
+    public var description: String {
+        let vars = self.vars.map({ (v, ty) in "    \(v): \(ty)" })
+        return "{\n\(vars.joined(separator: ",\n"))\n}"
+    }
+}
+
 public enum TyVar: Equatable, CustomStringConvertible {
     case unbound(id: TyVarId, level: UInt)
     case link(Ty)
+    case generic(TyVarId)
 
     public static func showTyVarId(_ id: TyVarId) -> String {
         let char = UnicodeScalar(65 + Int(id % 26))!
@@ -38,12 +86,25 @@ public enum TyVar: Equatable, CustomStringConvertible {
         case let .unbound(id, _):
             return TyVar.showTyVarId(id)
         case let .link(ty):
-            return ty.description
+            return "\(ty)"
+        case let .generic(id):
+            return "'" + TyVar.showTyVarId(id)
         }
     }
 
     public static func fresh(level: UInt) -> TyVar {
         return .unbound(id: TyContext.freshTyVarId(), level: level)
+    }
+    
+    public static func == (lhs: TyVar, rhs: TyVar) -> Bool {
+        switch (lhs, rhs) {
+        case let (.unbound(id: id1, _), .unbound(id: id2, _)):
+            return id1 == id2
+        case let (.link(to1), .link(to2)):
+            return to1.deref() == to2.deref()
+        default:
+            return false
+        }
     }
 }
 
@@ -56,14 +117,6 @@ public class Ref<T: Equatable>: Equatable {
 
     public static func == (lhs: Ref<T>, rhs: Ref<T>) -> Bool {
         return lhs.ref == rhs.ref
-    }
-
-    public static func ~= (lhs: T, rhs: Ref<T>) -> Bool {
-        return rhs.ref ~= lhs
-    }
-
-    public static func ~= (lhs: Ref<T>, rhs: T) -> Bool {
-        return lhs.ref ~= rhs
     }
 }
 
@@ -83,17 +136,35 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     static var bool: Ty {
         return .const("bool", [])
     }
+    
+    static var unit: Ty {
+        return .const("unit", [])
+    }
 
-    public func tuple(_ elems: [Ty]) -> Ty {
+    public static func tuple(_ elems: [Ty]) -> Ty {
         return .const("tuple", elems)
+    }
+    
+    public static func iterator(_ ty: Ty) -> Ty {
+        return .const("iter", [ty])
+    }
+    
+    public static func freshVar(level l: UInt) -> Ty {
+        return .variable(Ref(TyVar.fresh(level: l)))
     }
 
     public var description: String {
         switch self {
         case let .variable(tyVar):
             return "\(tyVar.ref)"
+        case let .const("tuple", elems):
+            return "(\(elems.map({ "\($0)" }).joined(separator: ", ")))"
+        case let .const(name, args) where args.isEmpty:
+            return "\(name)"
         case let .const(name, args):
             return "\(name)<\(args.map({ "\($0)" }).joined(separator: ", "))>"
+        case let .fun(args, ret) where args.count == 1:
+            return "\(args[0]) -> \(ret)"
         case let .fun(args, ret):
             return "(\(args.map({ "\($0)" }).joined(separator: ", "))) -> \(ret)"
         }
@@ -110,9 +181,9 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     }
 }
 
-func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) -> TypeError? {
-    func go(_ ty: Ty) throws {
-        switch ty {
+func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
+    func go(_ t: Ty) throws {
+        switch t {
         case let .variable(v):
             switch v.ref {
             case let .link(t):
@@ -125,6 +196,8 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) -> TypeError? {
                 if otherLvl > level {
                     v.ref = .unbound(id: otherId, level: level)
                 }
+            case .generic(_):
+                assertionFailure()
          }
         case let .const(_, args):
             for arg in args {
@@ -139,40 +212,88 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) -> TypeError? {
         }
     }
     
-    do {
-        try go(ty)
-    } catch let error as TypeError {
-        return error
-    } catch {}
-    
-    return nil
+    try go(ty)
 }
 
 // see https://github.com/tomprimozic/type-systems
-public func unify(_ s: Ty, _ t: Ty) -> TypeError? {
+public func unify(_ s: Ty, _ t: Ty) throws {
     var eqs = [(s, t)]
     while let (s, t) = eqs.popLast() {
-        switch (s, t) {
-        case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
-            eqs.append(contentsOf: zip(args1, args2))
-        case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
-            eqs.append(contentsOf: zip(args1, args2))
-            eqs.append((ret1, ret2))
-        case let (.variable(v), ty), let (ty, .variable(v)):
-            switch v.ref {
-            case let .unbound(id, lvl):
-                if let err = occursCheckAdjustLevels(id: id, level: lvl, ty: ty) {
-                    return err
+        if s != t {
+            switch (s, t) {
+            case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
+                eqs.append(contentsOf: zip(args1, args2))
+            case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
+                eqs.append(contentsOf: zip(args1, args2))
+                eqs.append((ret1, ret2))
+            case let (.variable(v), ty), let (ty, .variable(v)):
+                switch v.ref {
+                case let .unbound(id, lvl):
+                    if case let .variable(v2) = ty, case let .unbound(id2, _) = v2.ref, id2 == id {
+                        assertionFailure("There should only be one instance of a particular type variable.")
+                    }
+                    
+                    try occursCheckAdjustLevels(id: id, level: lvl, ty: ty)
+                    
+                    v.ref = .link(ty)
+                case let .link(to):
+                    eqs.append((to, ty))
+                case .generic(_):
+                    throw TypeError.cannotUnify(s, t)
                 }
-                
-                v.ref = .link(ty)
-            case let .link(to):
-                eqs.append((to, ty))
+            default:
+                throw TypeError.cannotUnify(s, t)
             }
-        default:
-            return TypeError.cannotUnify(s, t)
         }
     }
+}
 
-    return nil
+extension Ty {
+    public func generalize(level: UInt) -> Ty {
+        switch self {
+        case let .variable(v):
+            switch v.ref {
+            case let .unbound(id, lvl) where lvl > level:
+                return .variable(Ref(.generic(id)))
+            case let .link(to):
+                return to.generalize(level: level)
+            default:
+                return self
+            }
+        case let .const(name, args):
+            return .const(name, args.map({ $0.generalize(level: level) }))
+        case let .fun(args, ret):
+            return .fun(args.map({ $0.generalize(level: level) }), ret.generalize(level: level))
+        }
+    }
+    
+    public func instantiate(level: UInt) -> Ty {
+        var idVarMap = [TyVarId:Ty]()
+        
+        func go(_ ty: Ty) -> Ty {
+            switch ty {
+            case let .const(name, args):
+                return .const(name, args.map(go))
+            case let .variable(v):
+                switch v.ref {
+                case let .link(to):
+                    return go(to)
+                case .unbound(_, _):
+                    return ty
+                case let .generic(id):
+                    if let inst = idVarMap[id] {
+                        return inst
+                    } else {
+                        let inst = Ty.freshVar(level: level)
+                        idVarMap[id] = inst
+                        return inst
+                    }
+                }
+            case let .fun(args, ret):
+                return .fun(args.map(go), go(ret))
+            }
+        }
+        
+        return go(self)
+    }
 }

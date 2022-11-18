@@ -51,7 +51,7 @@ public enum Symbol: CustomStringConvertible {
 }
 
 public enum Keyword: String {
-    case Let, Mut, If, Else, For, In, Return, Yield, Break, While, Check, And, Or, True, False
+    case Let, Mut, If, Else, For, In, Return, Yield, Break, While, Check, And, Or, True, False, Iterator
 
     public static func parse(_ str: String) -> Keyword? {
         switch str {
@@ -70,6 +70,7 @@ public enum Keyword: String {
         case "or": return .Or
         case "true": return .True
         case "false": return .False
+        case "iterator": return .Iterator
         default: return nil
         }
     }
@@ -87,19 +88,19 @@ public enum Token: Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case .num(let x):
-            return Literal.num(x).description
+            return "\(Literal.num(x))"
         case .bool(let q):
-            return q.description
+            return "\(q)"
         case .str(let s):
             return "\"\(s)\""
         case .symbol(let s):
-            return s.description
+            return "\(s)"
         case .identifier(let id):
             return id
         case .keyword(let kw):
             return "\(kw)"
         case .error(let error):
-            return error.description
+            return "\(error)"
         }
     }
 }

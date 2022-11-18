@@ -293,10 +293,11 @@ public class Parser {
         return lhs
     }
 
-    // fun -> ('(' (identifier (',' identifier)*)? ')' | identifier) '->' expr | logicalOr
+    // fun -> 'iterator'? ('(' (identifier (',' identifier)*)? ')' | identifier) '->' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
             var args = [String]()
+            let isIterator = match(.keyword(.Iterator))
 
             if match(.symbol(.lparen)) {
                 while case .identifier(let arg) = peek() {
@@ -320,7 +321,7 @@ public class Parser {
 
             let body = try expression()
 
-            return Expr.Fun(args: args, body: body)
+            return Expr.Fun(args: args, body: body, isIterator: isIterator)
         }) {
             return f
         }
@@ -452,8 +453,10 @@ public class Parser {
     func unary() throws -> Expr {
         switch peek() {
         case .symbol(.minus):
+            advance()
             return .UnaryOp(.arithmeticNegation, try unary())
         case .symbol(.bang):
+            advance()
             return .UnaryOp(.logicalNegation, try unary())
         default:
             return try call()

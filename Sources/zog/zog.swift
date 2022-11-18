@@ -12,10 +12,17 @@ public struct zog {
             for (error, start, end) in parser.errors {
                 print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")
             }
+            
+            let env = Env()
+            
+            env.declare(varName: "print", ty: .fun([.variable(Ref(.generic(0)))], .unit))
 
             for stmt in prog {
                 print(stmt)
+                try stmt.infer(env, 0)
             }
+            
+            print("\(env)")
         } else {
             print("usage: zog file.zog")
         }
