@@ -138,7 +138,20 @@ extension Stmt {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
         case let .Let(_, name, val):
-            let valTy = try val.infer(env, level + 1)
+            let valTy: Ty
+            
+            if case .Fun(_, _, _) = val {
+                // include name in the rhs environment
+                // to support recursive closures
+                let rhsEnv = env.child()
+                let funTy = Ty.freshVar(level: level)
+                rhsEnv.declare(varName: name, ty: funTy)
+                valTy = try val.infer(rhsEnv, level + 1)
+                try unify(valTy, funTy)
+            } else {
+                valTy = try val.infer(env, level + 1)
+            }
+            
             let genValTy = valTy.generalize(level: level)
             env.declare(varName: name, ty: genValTy)
         case let .For(name, iterator, body):

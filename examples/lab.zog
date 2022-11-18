@@ -8,6 +8,8 @@ let range = iterator (start, end, step) -> {
     }
 }
 
+let fact = n -> if n == 0 { 1 } else { n * fact(n - 1) }
+
 let f = x -> 3 * x
 let yo = if f(7 + 1) > 21 { 1 } else { 2 }
 let id = x -> x
