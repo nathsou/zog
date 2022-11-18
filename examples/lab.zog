@@ -10,6 +10,7 @@ let range = iterator (start, end, step) -> {
 
 let f = x -> 3 * x
 let yo = if f(7 + 1) > 21 { 1 } else { 2 }
+let id = x -> x
 
 for n in range(0, 10, 1) {
     print(n)

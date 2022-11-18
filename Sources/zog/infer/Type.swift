@@ -154,19 +154,41 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     }
 
     public var description: String {
-        switch self {
-        case let .variable(tyVar):
-            return "\(tyVar.ref)"
-        case let .const("tuple", elems):
-            return "(\(elems.map({ "\($0)" }).joined(separator: ", ")))"
-        case let .const(name, args) where args.isEmpty:
-            return "\(name)"
-        case let .const(name, args):
-            return "\(name)<\(args.map({ "\($0)" }).joined(separator: ", "))>"
-        case let .fun(args, ret) where args.count == 1:
-            return "\(args[0]) -> \(ret)"
-        case let .fun(args, ret):
-            return "(\(args.map({ "\($0)" }).joined(separator: ", "))) -> \(ret)"
+        var generics = Set<TyVarId>()
+        
+        func go(_ ty: Ty) -> String {
+            switch ty {
+            case let .variable(tyVar):
+                switch tyVar.ref {
+                case let .unbound(id, _):
+                    return TyVar.showTyVarId(id)
+                case let .link(to):
+                    return go(to)
+                case let .generic(id):
+                    generics.insert(id)
+                    return TyVar.showTyVarId(id)
+                }
+            case .const("unit", []):
+                return "()"
+            case let .const("tuple", elems):
+                return "(\(elems.map(go).joined(separator: ", ")))"
+            case let .const(name, []):
+                return name
+            case let .const(name, args):
+                return "\(name)<\(args.map(go).joined(separator: ", "))>"
+            case let .fun(args, ret) where args.count == 1:
+                return "\(go(args[0])) -> \(go(ret))"
+            case let .fun(args, ret):
+                return "(\(args.map(go).joined(separator: ", "))) -> \(go(ret))"
+            }
+        }
+        
+        let res = go(self)
+        
+        if generics.isEmpty {
+            return res
+        } else {
+            return "<\(generics.map(TyVar.showTyVarId).sorted().joined(separator: ", "))>(\(res))"
         }
     }
 
