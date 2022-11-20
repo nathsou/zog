@@ -7,29 +7,31 @@
 
 import Foundation
 
-extension Expr {
+extension CoreExpr {
     public func infer(_ env: Env, _ level: UInt) throws -> Ty {
+        let tau: Ty
+        
         switch self {
-        case let .Literal(lit):
+        case let .Literal(lit, _):
             switch lit {
             case .bool(_):
-                return .bool
+                tau = .bool
             case .num(_):
-                return .num
+                tau = .num
             case .str(_):
-                return .str
+                tau = .str
             case .unit:
-                return .unit
+                tau = .unit
             }
-        case let .Var(name):
+        case let .Var(name, _):
             if let ty = env.lookup(varName: name) {
-                return ty.instantiate(level: level)
+                tau = ty.instantiate(level: level)
             } else {
                 throw TypeError.unknownVariable(name)
             }
-        case let .Parens(expr):
-            return try expr.infer(env, level)
-        case let .Fun(args, body, isIterator):
+        case let .Parens(expr, _):
+            tau = try expr.infer(env, level)
+        case let .Fun(args, body, isIterator, _):
             let argsTy = args.map({ _ in Ty.freshVar(level: level) })
             let bodyEnv = env.child()
             
@@ -48,16 +50,15 @@ extension Expr {
             }
             Env.popFunc()
             
-            return .fun(argsTy, actualRetTy)
-        case let .Call(f, args):
+            tau = .fun(argsTy, actualRetTy)
+        case let .Call(f, args, retTy):
             let argsTy = try args.map({ arg in try arg.infer(env, level) })
             let funTy = try f.infer(env, level)
-            let retTy = Ty.freshVar(level: level)
             let expectedTy = Ty.fun(argsTy, retTy)
             try unify(expectedTy, funTy)
             
-            return retTy
-        case let .If(cond, thenExpr, elseExpr):
+            tau = retTy
+        case let .If(cond, thenExpr, elseExpr, _):
             let condTy = try cond.infer(env, level)
             try unify(condTy, .bool)
             
@@ -69,20 +70,17 @@ extension Expr {
                 return thenTy
             }
             
-            return .unit
-        case let .UnaryOp(op, expr):
+            tau = .unit
+        case let .UnaryOp(op, expr, _):
             let exprTy = try expr.infer(env, level)
-            let ty: Ty
             
             switch op {
-            case .arithmeticNegation: ty = .num
-            case .logicalNegation: ty = .bool
+            case .arithmeticNegation: tau = .num
+            case .logicalNegation: tau = .bool
             }
             
-            try unify(exprTy, ty)
-            
-            return ty
-        case let .BinaryOp(lhs, op, rhs):
+            try unify(exprTy, tau)
+        case let .BinaryOp(lhs, op, rhs, _):
             let lhsTy = try lhs.infer(env, level)
             let rhsTy = try rhs.infer(env, level)
             let argTy: Ty
@@ -103,8 +101,8 @@ extension Expr {
             try unify(lhsTy, argTy)
             try unify(rhsTy, argTy)
             
-            return retTy
-        case let .Assignment(lhs, op, rhs):
+            tau = retTy
+        case let .Assignment(lhs, op, rhs, _):
             let lhsTy = try lhs.infer(env, level)
             let rhsTy = try rhs.infer(env, level)
             
@@ -112,27 +110,32 @@ extension Expr {
             case .plusEq, .minusEq, .timesEq, .divideEq:
                 try unify(lhsTy, .num)
                 try unify(rhsTy, .num)
-                return .num
+                tau = .num
             case .eq:
                 try unify(lhsTy, rhsTy)
-                return lhsTy
+                tau = lhsTy
             }
-        case let .Block(stmts, ret):
+        case let .Block(stmts, ret, _):
             let blockEnv = env.child()
             
             for stmt in stmts {
                 try stmt.infer(blockEnv, level)
             }
             
-            return try ret?.infer(blockEnv, level) ?? .unit
-        case let .Tuple(elems):
+            tau = try ret?.infer(blockEnv, level) ?? .unit
+        case let .Tuple(elems, _):
             let elemTys = try elems.map({ elem in try elem.infer(env, level) })
-            return .tuple(elemTys)
+            tau = .tuple(elemTys)
         }
+        
+        let ty = self.ty()
+        try unify(tau, ty)
+        
+        return ty
     }
 }
 
-extension Stmt {
+extension CoreStmt {
     public func infer(_ env: Env, _ level: UInt) throws {
         switch self {
         case let .Expr(expr):
@@ -140,11 +143,10 @@ extension Stmt {
         case let .Let(_, name, val):
             let valTy: Ty
             
-            if case .Fun(_, _, _) = val {
-                // include name in the rhs environment
+            if case .Fun(_, _, _, let funTy) = val {
+                // include `name` in the rhs environment
                 // to support recursive closures
                 let rhsEnv = env.child()
-                let funTy = Ty.freshVar(level: level)
                 rhsEnv.declare(varName: name, ty: funTy)
                 valTy = try val.infer(rhsEnv, level + 1)
                 try unify(valTy, funTy)
@@ -188,8 +190,6 @@ extension Stmt {
             } else {
                 throw TypeError.cannotYieldOutsideIteratorBody
             }
-        case .Error(_, _):
-            break
         }
     }
 }

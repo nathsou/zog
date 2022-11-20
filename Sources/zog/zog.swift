@@ -14,16 +14,19 @@ public struct zog {
                     print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")
                 }
                 
-                let env = Env()
-                
-                env.declare(varName: "print", ty: .fun([.variable(Ref(.generic(0)))], .unit))
-                
-                for stmt in prog {
-                    print(stmt)
-                    try stmt.infer(env, 0)
+                if parser.errors.isEmpty {
+                    let core = prog.map({ stmt in CoreStmt.from(stmt, 0) })
+                    let env = Env()
+                    
+                    env.declare(varName: "print", ty: .fun([.variable(Ref(.generic(0)))], .unit))
+                    try core.forEach({ stmt in try stmt.infer(env, 0) })
+                    
+                    for stmt in prog {
+                        print(stmt)
+                    }
+                    
+                    print("\n\(env)")
                 }
-                
-                print("\n\(env)")
             } catch let error as ParserError {
                 print("Parsing failed: \(error)")
             } catch let error as TypeError {
