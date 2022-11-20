@@ -8,7 +8,7 @@
 import Foundation
 
 extension CoreExpr {
-    public func infer(_ env: Env, _ level: UInt) throws -> Ty {
+    public func infer(_ env: TypeEnv, _ level: UInt) throws -> Ty {
         let tau: Ty
         
         switch self {
@@ -24,7 +24,7 @@ extension CoreExpr {
                 tau = .unit
             }
         case let .Var(name, _):
-            if let ty = env.lookup(varName: name) {
+            if let ty = env.lookup(name) {
                 tau = ty.instantiate(level: level)
             } else {
                 throw TypeError.unknownVariable(name)
@@ -36,11 +36,11 @@ extension CoreExpr {
             let bodyEnv = env.child()
             
             for (arg, ty) in zip(args, argsTy) {
-                bodyEnv.declare(varName: arg, ty: ty)
+                try bodyEnv.declare(arg, ty: ty)
             }
             
             let retTy = isIterator ? Ty.iterator(Ty.freshVar(level: level)) : Ty.freshVar(level: level)
-            Env.pushFunc(retTy: retTy)
+            TypeEnv.pushFunc(retTy: retTy)
             var actualRetTy = try body.infer(bodyEnv, level)
             if isIterator {
                 actualRetTy = .iterator(.freshVar(level: level))
@@ -48,7 +48,7 @@ extension CoreExpr {
             } else {
                 try unify(retTy, actualRetTy)
             }
-            Env.popFunc()
+            TypeEnv.popFunc()
             
             tau = .fun(argsTy, actualRetTy)
         case let .Call(f, args, retTy):
@@ -61,16 +61,10 @@ extension CoreExpr {
         case let .If(cond, thenExpr, elseExpr, _):
             let condTy = try cond.infer(env, level)
             try unify(condTy, .bool)
-            
             let thenTy = try thenExpr.infer(env, level)
-            
-            if let elseExpr {
-                let elseTy = try elseExpr.infer(env, level)
-                try unify(thenTy, elseTy)
-                return thenTy
-            }
-            
-            tau = .unit
+            let elseTy = try elseExpr.infer(env, level)
+            try unify(thenTy, elseTy)
+            tau = thenTy
         case let .UnaryOp(op, expr, _):
             let exprTy = try expr.infer(env, level)
             
@@ -136,7 +130,7 @@ extension CoreExpr {
 }
 
 extension CoreStmt {
-    public func infer(_ env: Env, _ level: UInt) throws {
+    public func infer(_ env: TypeEnv, _ level: UInt) throws {
         switch self {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
@@ -147,7 +141,7 @@ extension CoreStmt {
                 // include `name` in the rhs environment
                 // to support recursive closures
                 let rhsEnv = env.child()
-                rhsEnv.declare(varName: name, ty: funTy)
+                try rhsEnv.declare(name, ty: funTy)
                 valTy = try val.infer(rhsEnv, level + 1)
                 try unify(valTy, funTy)
             } else {
@@ -155,18 +149,18 @@ extension CoreStmt {
             }
             
             let genValTy = valTy.generalize(level: level)
-            env.declare(varName: name, ty: genValTy)
+            try env.declare(name, ty: genValTy)
         case let .For(name, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy = Ty.freshVar(level: level)
             try unify(iterTy, .iterator(iterItemTy))
             let bodyEnv = env.child()
-            bodyEnv.declare(varName: name, ty: iterItemTy)
+            try bodyEnv.declare(name, ty: iterItemTy)
     
             for stmt in body {
                 try stmt.infer(bodyEnv, level)
             }
-        case let .While(cond, body):
+        case let .While(cond, body), let .IfThen(cond, body):
             let condTy = try cond.infer(env, level)
             try unify(condTy, .bool)
             let bodyEnv = env.child()
@@ -176,7 +170,7 @@ extension CoreStmt {
             }
         case let .Return(expr):
             let exprTy = try expr?.infer(env, level) ?? .unit
-            if let funcRetTy = Env.funcReturnTy() {
+            if let funcRetTy = TypeEnv.funcReturnTy() {
                 try unify(exprTy, funcRetTy)
             } else {
                 throw TypeError.cannotReturnOutsideFunctionBody
@@ -185,7 +179,7 @@ extension CoreStmt {
             break
         case let .Yield(expr):
             let exprTy = try expr.infer(env, level)
-            if case let .const("iter", args) = Env.funcReturnTy(), args.count == 1 {
+            if case let .const("iter", args) = TypeEnv.funcReturnTy(), args.count == 1 {
                 try unify(exprTy, args[0])
             } else {
                 throw TypeError.cannotYieldOutsideIteratorBody

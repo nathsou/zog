@@ -15,17 +15,22 @@ public struct zog {
                 }
                 
                 if parser.errors.isEmpty {
-                    let core = prog.map({ stmt in CoreStmt.from(stmt, 0) })
-                    let env = Env()
+                    let core = prog.map({ stmt in stmt.core(0) })
+                    let env = TypeEnv()
+                    try env.declare("print", ty: .fun([.variable(Ref(.generic(0)))], .unit))
+                    let context = CoreContext()
+                    _ = context.declare("print")
                     
-                    env.declare(varName: "print", ty: .fun([.variable(Ref(.generic(0)))], .unit))
                     try core.forEach({ stmt in try stmt.infer(env, 0) })
-                    
-                    for stmt in prog {
-                        print(stmt)
+                                    
+                    for stmt in core {
+                        context.statements.append(try stmt.codegen(context))
                     }
                     
-                    print("\n\(env)")
+                    print("const print = console.log;")
+                    for stmt in context.statements {
+                        print(stmt)
+                    }
                 }
             } catch let error as ParserError {
                 print("Parsing failed: \(error)")

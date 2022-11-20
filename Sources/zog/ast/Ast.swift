@@ -97,7 +97,7 @@ public enum AssignmentOperator: CustomStringConvertible {
     }
 }
 
-func indent(_ str: CustomStringConvertible) -> String {
+public func indent(_ str: CustomStringConvertible) -> String {
     return String(describing: str)
         .split(separator: "\n")
         .map({ s in "    \(s)" })
@@ -113,7 +113,7 @@ public indirect enum Expr: CustomStringConvertible {
     case Fun(args: [String], body: Expr, isIterator: Bool)
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
-    case If(cond: Expr, thenExpr: Expr, elseExpr: Expr?)
+    case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
 
@@ -155,11 +155,7 @@ public indirect enum Expr: CustomStringConvertible {
                 return "{\n\(stmts.map(indent).joined(separator: "\n"))\n}"
             }
         case let .If(cond, thenExpr, elseExpr):
-            if let elseExpr = elseExpr {
-                return "if \(cond) \(thenExpr) else \(elseExpr)"
-            } else {
-                return "if \(cond) \(thenExpr)"
-            }
+            return "if \(cond) \(thenExpr) else \(elseExpr)"
         case let .Assignment(lhs, op, rhs):
             return "\(lhs) \(op) \(rhs)"
         case let .Tuple(exprs):
@@ -173,6 +169,7 @@ public enum Stmt: CustomStringConvertible {
     case Let(mut: Bool, name: String, val: Expr)
     indirect case While(cond: Expr, body: [Stmt])
     indirect case For(name: String, iterator: Expr, body: [Stmt])
+    indirect case IfThen(cond: Expr, then: [Stmt])
     case Return(Expr?)
     case Yield(Expr)
     case Break
@@ -192,6 +189,8 @@ public enum Stmt: CustomStringConvertible {
         case let .For(name, iterator, body):
             return
                 "for \(name) in \(iterator) {\n\(body.map(indent).joined(separator: "\n"))\n}"
+        case let .IfThen(cond, then):
+            return "if \(cond) {\n\(then.map(indent).joined(separator: "\n"))\n}"
         case .Return(nil):
             return "return"
         case let .Return(.some(ret)):

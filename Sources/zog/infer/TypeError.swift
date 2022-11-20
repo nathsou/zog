@@ -13,6 +13,7 @@ public enum TypeError: Error, CustomStringConvertible, Equatable {
     case unknownVariable(String)
     case cannotReturnOutsideFunctionBody
     case cannotYieldOutsideIteratorBody
+    case cannotRedeclareVariable(String)
 
     public var description: String {
         switch self {
@@ -26,6 +27,8 @@ public enum TypeError: Error, CustomStringConvertible, Equatable {
             return "'return' can only be used inside a function body"
         case .cannotYieldOutsideIteratorBody:
             return "'yield' can only be used inside an iterator declaration"
+        case let .cannotRedeclareVariable(name):
+            return "Cannot redeclare '\(name)'"
         }
     }
 }

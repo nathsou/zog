@@ -19,8 +19,8 @@ class TyContext {
     }
 }
 
-public class Env: CustomStringConvertible {
-    let parent: Env?
+public class TypeEnv: CustomStringConvertible {
+    let parent: TypeEnv?
     var vars = [String:Ty]()
     static var functionReturnTyStack = [Ty]()
     
@@ -28,36 +28,44 @@ public class Env: CustomStringConvertible {
         parent = nil
     }
     
-    init(parent: Env) {
+    init(parent: TypeEnv? = nil) {
         self.parent = parent
     }
     
-    public func lookup(varName: String) -> Ty? {
-        if let ty = vars[varName] {
+    public func lookup(_ name: String) -> Ty? {
+        if let ty = vars[name] {
             return ty
         }
         
-        return parent?.lookup(varName: varName)
+        return parent?.lookup(name)
     }
     
-    public func declare(varName: String, ty: Ty) {
-        vars[varName] = ty
+    public func contains(_ name: String) -> Bool {
+        return lookup(name) != nil
     }
     
-    public func child() -> Env {
-        return Env.init(parent: self)
+    public func declare(_ name: String, ty: Ty) throws {
+        guard vars[name] == nil else {
+            throw TypeError.cannotRedeclareVariable(name)
+        }
+        
+        vars[name] = ty
+    }
+    
+    public func child() -> TypeEnv {
+        return TypeEnv.init(parent: self)
     }
     
     public static func pushFunc(retTy: Ty) {
-        Env.functionReturnTyStack.append(retTy)
+        TypeEnv.functionReturnTyStack.append(retTy)
     }
     
     public static func popFunc() {
-        _ = Env.functionReturnTyStack.popLast()
+        _ = TypeEnv.functionReturnTyStack.popLast()
     }
     
     public static func funcReturnTy() -> Ty? {
-        return Env.functionReturnTyStack.last
+        return TypeEnv.functionReturnTyStack.last
     }
     
     public var description: String {

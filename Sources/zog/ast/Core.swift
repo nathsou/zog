@@ -7,7 +7,7 @@
 
 import Foundation
 
-indirect enum CoreExpr {
+public indirect enum CoreExpr {
     case Literal(Literal, ty: Ty)
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
@@ -16,7 +16,7 @@ indirect enum CoreExpr {
     case Fun(args: [String], body: CoreExpr, isIterator: Bool, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
-    case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr?, ty: Ty)
+    case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr, ty: Ty)
     case Assignment(CoreExpr, AssignmentOperator, CoreExpr, ty: Ty)
     case Tuple([CoreExpr], ty: Ty)
     
@@ -35,64 +35,68 @@ indirect enum CoreExpr {
         case .Tuple(_, let ty): return ty
         }
     }
+}
 
-    public static func from(_ expr: Expr, _ lvl: UInt) -> CoreExpr {
-        let ty = Ty.freshVar(level: lvl);
-        let go = { (_ expr: Expr) in from(expr, lvl) }
-
-        switch expr {
+extension Expr {
+    public func core(_ lvl: UInt) -> CoreExpr {
+        let ty = Ty.freshVar(level: lvl)
+        
+        switch self {
         case let .Literal(lit):
             return .Literal(lit, ty: ty)
         case let .UnaryOp(op, expr):
-            return .UnaryOp(op, go(expr), ty: ty);
+            return .UnaryOp(op, expr.core(lvl), ty: ty);
         case let .BinaryOp(lhs, op, rhs):
-            return .BinaryOp(go(lhs), op, go(rhs), ty: ty)
+            return .BinaryOp(lhs.core(lvl), op, rhs.core(lvl), ty: ty)
         case let .Parens(expr):
-            return .Parens(go(expr), ty: ty)
+            return .Parens(expr.core(lvl), ty: ty)
         case let .Var(name):
             return .Var(name, ty: ty)
         case let .Fun(args, body, isIterator):
-            return .Fun(args: args, body: go(body), isIterator: isIterator, ty: ty)
+            return .Fun(args: args, body: body.core(lvl), isIterator: isIterator, ty: ty)
         case let .Call(f, args):
-            return .Call(f: go(f), args: args.map({ go($0) }), ty: ty)
+            return .Call(f: f.core(lvl), args: args.map({ $0.core(lvl) }), ty: ty)
         case let .Block(stmts, ret):
-            return .Block(stmts.map({ CoreStmt.from($0, lvl) }), ret: ret.map(go), ty: ty)
+            return .Block(stmts.map({ $0.core(lvl) }), ret: ret.map({ $0.core(lvl) }), ty: ty)
         case let .If(cond, thenExpr, elseExpr):
-            return .If(cond: go(cond), thenExpr: go(thenExpr), elseExpr: elseExpr.map(go), ty: ty)
+            return .If(cond: cond.core(lvl), thenExpr: thenExpr.core(lvl), elseExpr: elseExpr.core(lvl), ty: ty)
         case let .Assignment(lhs, op, rhs):
-            return .Assignment(go(lhs), op, go(rhs), ty: ty)
+            return .Assignment(lhs.core(lvl), op, rhs.core(lvl), ty: ty)
         case let .Tuple(elems):
-            return .Tuple(elems.map(go), ty: ty)
+            return .Tuple(elems.map({ $0.core(lvl) }), ty: ty)
         }
     }
 }
 
-enum CoreStmt {
+public enum CoreStmt {
     case Expr(CoreExpr)
     case Let(mut: Bool, name: String, val: CoreExpr)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
     indirect case For(name: String, iterator: CoreExpr, body: [CoreStmt])
+    indirect case IfThen(cond: CoreExpr, then: [CoreStmt])
     case Return(CoreExpr?)
     case Yield(CoreExpr)
     case Break
+}
 
-    public static func from(_ stmt: Stmt, _ lvl: UInt) -> CoreStmt {
-        let go = { (_ stmt: Stmt) in from(stmt, lvl) }
-        let goExpr = { (_ expr: Expr) in CoreExpr.from(expr, lvl) }
 
-        switch stmt {
+extension Stmt {
+    public func core(_ lvl: UInt) -> CoreStmt {
+        switch self {
         case let .Expr(expr):
-            return .Expr(goExpr(expr))
+            return .Expr(expr.core(lvl))
         case let .Let(mut, name, val):
-            return .Let(mut: mut, name: name, val: CoreExpr.from(val, lvl + 1))
+            return .Let(mut: mut, name: name, val: val.core(lvl + 1))
         case let .While(cond, body):
-            return .While(cond: goExpr(cond), body: body.map(go))
+            return .While(cond: cond.core(lvl), body: body.map({ $0.core(lvl) }))
         case let .For(name, iterator, body):
-            return .For(name: name, iterator: goExpr(iterator), body: body.map(go))
+            return .For(name: name, iterator: iterator.core(lvl), body: body.map({ $0.core(lvl) }))
+        case let .IfThen(cond, then):
+            return .IfThen(cond: cond.core(lvl), then: then.map({ $0.core(lvl) }))
         case let .Return(expr):
-            return .Return(expr.map(goExpr))
+            return .Return(expr.map({ $0.core(lvl) }))
         case let .Yield(expr):
-            return .Yield(goExpr(expr))
+            return .Yield(expr.core(lvl))
         case .Break:
             return .Break
         case .Error(_, _):

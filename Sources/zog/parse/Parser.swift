@@ -160,6 +160,9 @@ public class Parser {
         case .keyword(.For):
             advance()
             return try forStmt()
+        case .keyword(.If):
+            advance()
+            return try ifStmt()
         case .keyword(.Return):
             advance()
             let expr = attempt(expression)
@@ -210,6 +213,14 @@ public class Parser {
 
         return .For(name: name, iterator: iterator, body: body)
     }
+    
+    func ifStmt() throws -> Stmt {
+        let cond = try expression()
+        let body = try statementListBlock()
+        try consume(.symbol(.semicolon))
+
+        return .IfThen(cond: cond, then: body)
+    }
 
     // stmtListBlock -> '{' stmt* '}'
     func statementListBlock() throws -> [Stmt] {
@@ -242,7 +253,8 @@ public class Parser {
         if match(.keyword(.If)) {
             let cond = try expression()
             let thenExpr = try expression()
-            let elseExpr: Expr? = match(.keyword(.Else)) ? try expression() : nil
+            try consume(.keyword(.Else))
+            let elseExpr = try expression()
 
             return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
         }
@@ -526,6 +538,10 @@ public class Parser {
         }
 
         if match(.symbol(.rcurlybracket)) {
+            if case let .Expr(ret) = stmts.last {
+                return .Block(stmts.dropLast(1), ret: ret)
+            }
+            
             return .Block(stmts, ret: nil)
         }
 
