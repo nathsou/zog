@@ -109,20 +109,47 @@ extension CoreExpr {
                 try unify(lhsTy, rhsTy)
                 tau = lhsTy
             }
-        case let .Block(stmts, ret, _):
+        case let .Block(stmts, ret, ty):
             let blockEnv = env.child()
             
             for stmt in stmts {
                 try stmt.infer(blockEnv, level)
+                
+                if case let .Return(expr) = stmt, expr != nil {
+                    try unify(expr!.ty, ty)
+                }
             }
             
-            tau = try ret?.infer(blockEnv, level) ?? .unit
+            if let ret {
+                let retTy = try ret.infer(blockEnv, level)
+                try unify(retTy, ty)
+            }
+            
+            tau = ty
         case let .Tuple(elems, _):
             let elemTys = try elems.map({ elem in try elem.infer(env, level) })
             tau = .tuple(elemTys)
+        case let .Array(elems, _):
+            let elemTy = Ty.freshVar(level: level)
+            
+            for elem in elems {
+                let ty = try elem.infer(env, level)
+                try unify(ty, elemTy)
+            }
+            
+            tau = .array(elemTy)
+        case let .Record(entries, _):
+            let fields = try entries.map({ (field, val) in (field, try val.infer(env, level)) })
+            tau = .record(Row.from(entries: fields))
+        case let .RecordSelect(record, field, fieldTy):
+            let tail = Ty.freshVar(level: level)
+            let partialRecordTy = Ty.record(Row.extend(field: field, ty: fieldTy, tail: tail))
+            let recordTy = try record.infer(env, level)
+            try unify(recordTy, partialRecordTy)
+            tau = fieldTy
         }
         
-        let ty = self.ty()
+        let ty = self.ty
         try unify(tau, ty)
         
         return ty

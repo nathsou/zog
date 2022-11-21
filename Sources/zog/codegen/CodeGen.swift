@@ -106,7 +106,12 @@ extension CoreExpr {
             )
         case let .Assignment(lhs, op, rhs, _):
             return .assignment(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
-        case let .Tuple(elems, _): return .array(try elems.map({ try $0.codegen(ctx) }))
+        case let .Tuple(elems, _), let .Array(elems, _):
+            return .array(try elems.map({ try $0.codegen(ctx) }))
+        case let .Record(entries, _):
+            return .object(try entries.map({ (k, v) in (k, try v.codegen(ctx)) }))
+        case let .RecordSelect(record, field, _):
+            return .objectAccess(try record.codegen(ctx), field: field)
         }
     }
 }

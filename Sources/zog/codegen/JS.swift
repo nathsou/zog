@@ -22,6 +22,8 @@ public indirect enum JSExpr: CustomStringConvertible {
     case ternary(cond: JSExpr, thenExpr: JSExpr, elseExpr: JSExpr)
     case assignment(JSExpr, AssignmentOperator, JSExpr)
     case array([JSExpr])
+    case object([(String, JSExpr)])
+    case objectAccess(JSExpr, field: String)
     
     public var description: String {
         switch self {
@@ -39,7 +41,7 @@ public indirect enum JSExpr: CustomStringConvertible {
                 return "(\(argsFmt)) => \(ret!)"
             }
             
-            return "(\(argsFmt) => {\n\(stmts.map(indent).joined(separator: "\n"))\n})"
+            return "(\(argsFmt)) => {\n\(stmts.map(indent).joined(separator: "\n"))\n}"
         case let .generator(args, stmts):
             let argsFmt = args.joined(separator: ", ")
             let bodyFmt = stmts.map(indent).joined(separator: "\n")
@@ -50,6 +52,11 @@ public indirect enum JSExpr: CustomStringConvertible {
         case let .ternary(cond, thenExpr, elseExpr): return "\(cond) ? \(thenExpr) : \(elseExpr)"
         case let .assignment(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
         case let .array(elems): return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
+        case let .object(entries) where entries.isEmpty: return "{}"
+        case let .object(entries):
+            return "{ \(entries.map({ (k, v) in "\(k): \(v)" }).joined(separator: ", ")) }"
+        case let .objectAccess(obj, field):
+            return "\(obj).\(field)"
         }
     }
 }

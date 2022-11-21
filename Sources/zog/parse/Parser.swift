@@ -20,20 +20,20 @@ public class Parser {
         statementStartIndex = 0
     }
 
-    func peek() -> Token? {
+    func peek(_ n: Int = 0) -> Token? {
         guard index < tokens.count else {
             return nil
         }
 
-        return tokens[index].token
+        return tokens[index + n].token
     }
 
     func previous() -> Token {
         return tokens[index - 1].token
     }
 
-    func check(_ token: Token) -> Bool {
-        if let t = peek() {
+    func check(_ token: Token, lookahead: Int = 0) -> Bool {
+        if let t = peek(lookahead) {
             return t == token
         }
 
@@ -141,7 +141,7 @@ public class Parser {
             synchronize()
             return .Error(error, span: (start, end))
         } catch {
-            return .Error(.expectedStatement, span: (0, 0))
+            return .Error(.expectedStatement, span: (statementStartIndex, index))
         }
     }
 
@@ -214,6 +214,7 @@ public class Parser {
         return .For(name: name, iterator: iterator, body: body)
     }
     
+    // ifStmt -> 'if' expr '{' stmt* '}'
     func ifStmt() throws -> Stmt {
         let cond = try expression()
         let body = try statementListBlock()
@@ -243,7 +244,7 @@ public class Parser {
         return .Expr(expr)
     }
 
-    // expr -> ifExpr
+    // expr -> useIn
     func expression() throws -> Expr {
         return try useIn()
     }
@@ -320,7 +321,7 @@ public class Parser {
         return lhs
     }
 
-    // fun -> 'iterator'? ('(' (identifier (',' identifier)*)? ')' | identifier) '->' expr | logicalOr
+    // fun -> 'iterator'? ('(' (identifier (',' identifier)*)?)? ')' | identifier) '->' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
             var args = [String]()
@@ -453,11 +454,11 @@ public class Parser {
         return lhs
     }
 
-    // multiplicative -> unary (('*' | '/') unary)*
+    // multiplicative -> unary (('*' | '/' | '%') unary)*
     func multiplicative() throws -> Expr {
         var lhs = try unary()
 
-        while match(.symbol(.star), .symbol(.slash)) {
+        while match(.symbol(.star), .symbol(.slash), .symbol(.percent)) {
             var op: BinaryOperator?
 
             switch previous() {
@@ -465,6 +466,8 @@ public class Parser {
                 op = .mul
             case .symbol(.slash):
                 op = .div
+            case .symbol(.percent):
+                op = .mod
             default:
                 break
             }
@@ -490,30 +493,35 @@ public class Parser {
         }
     }
 
-    // call -> primary '(' (expression (',' expression)*)? ')'
+    // call -> primary '(' ((expression (',' expression)*)? ')') | ('.' ident))*
     func call() throws -> Expr {
-        let lhs = try primary()
+        var lhs = try primary()
+        
+        while true {
+            if match(.symbol(.lparen)) {
+                var args = [Expr]()
 
-        if match(.symbol(.lparen)) {
-            var args = [Expr]()
-
-            while let expr = attempt(expression) {
-                args.append(expr)
-
-                if !match(.symbol(.comma)) {
-                    break
+                if !check(.symbol(.rparen)) {
+                    repeat {
+                        args.append(try expression())
+                    } while match(.symbol(.comma))
                 }
+
+                try consume(.symbol(.rparen))
+
+                lhs = .Call(f: lhs, args: args)
+            } else if match(.symbol(.dot)) {
+                let field = try identifier()
+                lhs = .RecordSelect(lhs, field: field)
+            } else {
+                break
             }
-
-            try consume(.symbol(.rparen))
-
-            return .Call(f: lhs, args: args)
         }
-
+        
         return lhs
     }
 
-    // primary -> num | bool | str | identifier | tupleOrParensOrUnit
+    // primary -> unit | num | bool | str | identifier | array | tuple | parens
     func primary() throws -> Expr {
         switch peek() {
         case .num(let x):
@@ -539,12 +547,49 @@ public class Parser {
             return try tupleOrParensOrUnit()
         case .symbol(.lcurlybracket):
             advance()
-            return try block()
+            return try blockOrRecord()
+        case .symbol(.lbracket):
+            advance()
+            return try array()
         default:
             throw ParserError.expectedExpression
         }
     }
+    
+    // blockOrRecord -> block | record
+    func blockOrRecord() throws -> Expr {
+        if match(.symbol(.rcurlybracket)) {
+            return .Record([])
+        }
+        
+        if case .identifier(_) = peek(), case .symbol(.colon) = peek(1) {
+            return try record()
+        } else {
+            return try block()
+        }
+    }
+    
+    // record -> '{' ((ident ':' expr) (',' ident ':' expr)*)? '}'
+    func record() throws -> Expr {
+        var entries = [(String, Expr)]()
+        
+        while case let .identifier(field) = peek() {
+            advance()
+            try consume(.symbol(.colon))
+            let val = try expression()
+            entries.append((field, val))
+            
+            if !match(.symbol(.comma)) {
+                break
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        
+        return .Record(entries)
+    }
 
+    // block -> '{' stmt* expr? '}'
     func block() throws -> Expr {
         var stmts = [Stmt]()
 
@@ -565,18 +610,36 @@ public class Parser {
 
         return .Block(stmts, ret: ret)
     }
+    
+    // array -> '[' (expr (',' expr)*)? ']'
+    func array() throws -> Expr {
+        var elems = [Expr]()
+
+        while let elem = attempt(expression) {
+            elems.append(elem)
+
+            if !match(.symbol(.comma)) {
+                break
+            }
+        }
+        
+        try consume(.symbol(.rbracket))
+        
+        return .Array(elems)
+    }
 
     // tupleOrParensOrUnit -> unit | parens | tuple
+    // unit -> '(' ')'
+    // parens -> '(' expr ')'
+    // tuple -> '(' expr (',' expr)+ ')'
     func tupleOrParensOrUnit() throws -> Expr {
         var exprs = [Expr]()
 
-        while let _ = peek() {
-            if let expr = attempt(expression) {
-                exprs.append(expr)
+        while let expr = attempt(expression) {
+            exprs.append(expr)
 
-                if !match(.symbol(.comma)) {
-                    break
-                }
+            if !match(.symbol(.comma)) {
+                break
             }
         }
 

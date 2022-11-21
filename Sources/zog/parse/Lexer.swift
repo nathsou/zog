@@ -52,6 +52,9 @@ public struct Lexer {
         case .symbol(.rcurlybracket): return true
         case .keyword(.Return): return true
         case .keyword(.Break): return true
+        case .keyword(.Yield): return true
+        case .keyword(.True): return true
+        case .keyword(.False): return true
         default: return false
         }
     }
@@ -139,8 +142,6 @@ public struct Lexer {
         while let c = peek(), c.isWhitespace {
             _ = advance()
         }
-
-        startIndex = index
     }
 
     mutating func skipLine() {
@@ -155,6 +156,7 @@ public struct Lexer {
         }
 
         skipSpaces()
+        startIndex = index
 
         if let c = advance() {
             switch c {

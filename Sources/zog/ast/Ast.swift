@@ -15,25 +15,17 @@ public enum Literal: CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .bool(let q):
-            return "\(q)"
-        case .num(let x):
-            if x - floor(x) < Float64.ulpOfOne {
-                return "\(Int(x))"
-            }
-
-            return "\(x)"
-        case .str(let s):
-            return "\"\(s)\""
-        case .unit:
-            return "()"
+        case .bool(let q): return "\(q)"
+        case .num(let x) where x == floor(x): return "\(Int(x))"
+        case .num(let x): return "\(x)"
+        case .str(let s): return "\"\(s)\""
+        case .unit: return "()"
         }
     }
 }
 
 public enum UnaryOperator: CustomStringConvertible {
-    case logicalNegation
-    case arithmeticNegation
+    case logicalNegation, arithmeticNegation
 
     public var description: String {
         switch self {
@@ -44,20 +36,7 @@ public enum UnaryOperator: CustomStringConvertible {
 }
 
 public enum BinaryOperator: CustomStringConvertible {
-    case add
-    case sub
-    case mul
-    case div
-    case mod
-    case pow
-    case equ
-    case neq
-    case lss
-    case leq
-    case gtr
-    case geq
-    case and
-    case or
+    case add, sub, mul, div, mod, pow, equ, neq, lss, leq, gtr, geq, and, or
 
     public var description: String {
         switch self {
@@ -80,11 +59,7 @@ public enum BinaryOperator: CustomStringConvertible {
 }
 
 public enum AssignmentOperator: CustomStringConvertible {
-    case eq
-    case plusEq
-    case minusEq
-    case timesEq
-    case divideEq
+    case eq, plusEq, minusEq, timesEq, divideEq
 
     public var description: String {
         switch self {
@@ -117,6 +92,9 @@ public indirect enum Expr: CustomStringConvertible {
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
     case UseIn(name: String, val: Expr, rhs: Expr)
+    case Array([Expr])
+    case Record([(String, Expr)])
+    case RecordSelect(Expr, field: String)
 
     public var description: String {
         switch self {
@@ -163,6 +141,13 @@ public indirect enum Expr: CustomStringConvertible {
             return "(\(exprs.map({ "\($0)" }).joined(separator: ", ")))"
         case let .UseIn(name, val, rhs):
             return "use \(name) = \(val) in \(rhs)"
+        case let .Array(elems):
+            return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
+        case let .Record(fields):
+            let sep = fields.count > 4 ? ",\n" : ", "
+            return "{ \(fields.map({ (field, val) in "\(field): \(val)" }).joined(separator: sep)) }"
+        case let .RecordSelect(record, field):
+            return "\(record).\(field)"
         }
     }
 }

@@ -1,23 +1,51 @@
 
-let range = iterator (start, end, step) -> {
-    mut i = start
+let iter = iterator (array) -> {
+    mut index = 0
     
-    while i < end {
-        yield i
-        i += step
+    while index < array.length {
+        yield array.at(index)
+        index += 1
     }
 }
 
-let fact = n -> if n == 0 { 1 } else { n * fact(n - 1) }
-
-for n in range(1, 17, 1) {
-    print(fact(n))
+let isPrime = (sieve, n) -> {
+    for p in iter(sieve) {
+        if p * p > n {
+            return true
+        }
+            
+        if n % p == 0 {
+            return false
+        }
+    }
+    
+    return true
 }
 
-use tuple = ("zog", 3 * 7, !(7 > 11)) in print(tuple)
+let primes = iterator max -> {
+    yield 2
+    
+    mut sieve = [2]
+    mut n = 3
+    
+    while n < max {
+        if isPrime(sieve, n) {
+            sieve.push(n)
+            yield n
+        }
+        
+        n += 2
+    }
+}
 
-print({
-    let a = { let a = 1; let b = 2; a + b }
-    let b = { let a = 2; let b = a; let c = b; a * b * c }
-    a * b
-})
+let count = it -> {
+    mut len = 0
+    
+    for elem in it {
+        len += 1
+    }
+    
+    len
+}
+
+print(count(primes(1000000)))

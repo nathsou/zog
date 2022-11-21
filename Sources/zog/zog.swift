@@ -21,7 +21,12 @@ public struct zog {
                     let context = CoreContext()
                     _ = context.declare("print")
                     
+                    func comment(_ text: CustomStringConvertible) -> String {
+                        return String(describing: env).split(separator: "\n").map({ "// \($0)" }).joined(separator: "\n")
+                    }
+                    
                     try core.forEach({ stmt in try stmt.infer(env, 0) })
+                    print(comment(env), "\n")
                                     
                     for stmt in core {
                         context.statements.append(try stmt.codegen(context))

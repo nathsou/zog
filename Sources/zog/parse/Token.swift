@@ -105,7 +105,7 @@ public enum Token: Equatable, CustomStringConvertible {
     }
 }
 
-public struct TokenWithPos {
+public struct TokenWithPos: CustomStringConvertible {
     let token: Token
     let start: Int
     let end: Int
