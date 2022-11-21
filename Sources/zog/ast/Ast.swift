@@ -116,6 +116,7 @@ public indirect enum Expr: CustomStringConvertible {
     case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
+    case UseIn(name: String, val: Expr, rhs: Expr)
 
     public var description: String {
         switch self {
@@ -160,6 +161,8 @@ public indirect enum Expr: CustomStringConvertible {
             return "\(lhs) \(op) \(rhs)"
         case let .Tuple(exprs):
             return "(\(exprs.map({ "\($0)" }).joined(separator: ", ")))"
+        case let .UseIn(name, val, rhs):
+            return "use \(name) = \(val) in \(rhs)"
         }
     }
 }

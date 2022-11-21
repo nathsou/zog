@@ -245,6 +245,21 @@ public class Parser {
 
     // expr -> ifExpr
     func expression() throws -> Expr {
+        return try useIn()
+    }
+    
+    // useIn -> 'use' ident '=' expr 'in' expr | if
+    func useIn() throws -> Expr {
+        if match(.identifier("use")) {
+            let name = try identifier()
+            try consume(.symbol(.eq))
+            let val = try expression()
+            try consume(.keyword(.In))
+            let rhs = try expression()
+            
+            return Expr.UseIn(name: name, val: val, rhs: rhs)
+        }
+        
         return try ifExpr()
     }
 

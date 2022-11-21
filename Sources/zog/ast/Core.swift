@@ -64,6 +64,13 @@ extension Expr {
             return .Assignment(lhs.core(lvl), op, rhs.core(lvl), ty: ty)
         case let .Tuple(elems):
             return .Tuple(elems.map({ $0.core(lvl) }), ty: ty)
+        case let .UseIn(name, val, rhs):
+            let coreRhs = rhs.core(lvl)
+            return .Block(
+                [.Let(mut: false, name: name, val: val.core(lvl))],
+                ret: coreRhs,
+                ty: coreRhs.ty()
+            )
         }
     }
 }

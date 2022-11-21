@@ -53,7 +53,7 @@ public class TypeEnv: CustomStringConvertible {
     }
     
     public func child() -> TypeEnv {
-        return TypeEnv.init(parent: self)
+        return .init(parent: self)
     }
     
     public static func pushFunc(retTy: Ty) {
