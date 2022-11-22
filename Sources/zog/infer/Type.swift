@@ -22,7 +22,8 @@ class TyContext {
 public class TypeEnv: CustomStringConvertible {
     let parent: TypeEnv?
     var vars = [String:Ty]()
-    static var functionReturnTyStack = [Ty]()
+    public typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
+    static var functionInfoStack = [FunctionInfo]()
     
     init() {
         parent = nil
@@ -56,16 +57,16 @@ public class TypeEnv: CustomStringConvertible {
         return .init(parent: self)
     }
     
-    public static func pushFunc(retTy: Ty) {
-        TypeEnv.functionReturnTyStack.append(retTy)
+    public static func pushFunctionInfo(retTy: Ty, isIterator: Bool) {
+        TypeEnv.functionInfoStack.append((retTy, isIterator))
     }
     
-    public static func popFunc() {
-        _ = TypeEnv.functionReturnTyStack.popLast()
+    public static func popFunctionInfo() {
+        _ = TypeEnv.functionInfoStack.popLast()
     }
     
-    public static func funcReturnTy() -> Ty? {
-        return TypeEnv.functionReturnTyStack.last
+    public static func peekFunctionInfo() -> FunctionInfo? {
+        return TypeEnv.functionInfoStack.last
     }
     
     public var description: String {
@@ -209,14 +210,17 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
             ("at", .fun([.num], elemTy)),
             ("push", .fun([elemTy], .unit)),
             ("length", .num),
+            ("Symbol.iterator", .const("iterator", [elemTy])),
         ]))
     }
     
-    public static func iterator(_ ty: Ty) -> Ty {
-        return .const("iter", [ty])
+    public static func iterator(_ ty: Ty, level: UInt) -> Ty {
+        return .record(Row.from(entries: [
+            ("Symbol.iterator", .const("iterator", [ty])),
+        ], tail: Ty.fresh(level: level)))
     }
     
-    public static func freshVar(level l: UInt) -> Ty {
+    public static func fresh(level l: UInt) -> Ty {
         return .variable(Ref(TyVar.fresh(level: l)))
     }
 
@@ -389,7 +393,7 @@ func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
     case .variable(let v):
         switch v.ref {
         case let .unbound(_, level):
-            let tail2 = Ty.freshVar(level: level)
+            let tail2 = Ty.fresh(level: level)
             let ty2 = Ty.record(.extend(field: field, ty: ty, tail: tail2))
             v.ref = .link(ty2)
             return tail2
@@ -443,7 +447,7 @@ extension Ty {
                     if let inst = idVarMap[id] {
                         return inst
                     } else {
-                        let inst = Ty.freshVar(level: level)
+                        let inst = Ty.fresh(level: level)
                         idVarMap[id] = inst
                         return inst
                     }

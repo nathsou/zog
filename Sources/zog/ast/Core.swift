@@ -45,7 +45,7 @@ public indirect enum CoreExpr {
 
 extension Expr {
     public func core(_ lvl: UInt) -> CoreExpr {
-        let ty = { Ty.freshVar(level: lvl) }
+        let ty = { Ty.fresh(level: lvl) }
         
         switch self {
         case let .Literal(lit):

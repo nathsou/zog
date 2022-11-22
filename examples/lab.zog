@@ -1,15 +1,6 @@
 
-let iter = iterator (array) -> {
-    mut index = 0
-    
-    while index < array.length {
-        yield array.at(index)
-        index += 1
-    }
-}
-
 let isPrime = (sieve, n) -> {
-    for p in iter(sieve) {
+    for p in sieve {
         if p * p > n {
             return true
         }
@@ -28,7 +19,7 @@ let primes = iterator max -> {
     mut sieve = [2]
     mut n = 3
     
-    while n < max {
+    while n <= max {
         if isPrime(sieve, n) {
             sieve.push(n)
             yield n

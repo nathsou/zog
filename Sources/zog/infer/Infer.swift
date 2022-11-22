@@ -32,23 +32,23 @@ extension CoreExpr {
         case let .Parens(expr, _):
             tau = try expr.infer(env, level)
         case let .Fun(args, body, isIterator, _):
-            let argsTy = args.map({ _ in Ty.freshVar(level: level) })
+            let argsTy = args.map({ _ in Ty.fresh(level: level) })
             let bodyEnv = env.child()
             
             for (arg, ty) in zip(args, argsTy) {
                 try bodyEnv.declare(arg, ty: ty)
             }
             
-            let retTy = isIterator ? Ty.iterator(Ty.freshVar(level: level)) : Ty.freshVar(level: level)
-            TypeEnv.pushFunc(retTy: retTy)
+            let retTy = isIterator ? Ty.iterator(Ty.fresh(level: level), level: level) : Ty.fresh(level: level)
+            TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
             var actualRetTy = try body.infer(bodyEnv, level)
             if isIterator {
-                actualRetTy = .iterator(.freshVar(level: level))
+                actualRetTy = .iterator(.fresh(level: level), level: level)
                 try unify(retTy, actualRetTy)
             } else {
                 try unify(retTy, actualRetTy)
             }
-            TypeEnv.popFunc()
+            TypeEnv.popFunctionInfo()
             
             tau = .fun(argsTy, actualRetTy)
         case let .Call(f, args, retTy):
@@ -130,7 +130,7 @@ extension CoreExpr {
             let elemTys = try elems.map({ elem in try elem.infer(env, level) })
             tau = .tuple(elemTys)
         case let .Array(elems, _):
-            let elemTy = Ty.freshVar(level: level)
+            let elemTy = Ty.fresh(level: level)
             
             for elem in elems {
                 let ty = try elem.infer(env, level)
@@ -142,7 +142,7 @@ extension CoreExpr {
             let fields = try entries.map({ (field, val) in (field, try val.infer(env, level)) })
             tau = .record(Row.from(entries: fields))
         case let .RecordSelect(record, field, fieldTy):
-            let tail = Ty.freshVar(level: level)
+            let tail = Ty.fresh(level: level)
             let partialRecordTy = Ty.record(Row.extend(field: field, ty: fieldTy, tail: tail))
             let recordTy = try record.infer(env, level)
             try unify(recordTy, partialRecordTy)
@@ -179,8 +179,8 @@ extension CoreStmt {
             try env.declare(name, ty: genValTy)
         case let .For(name, iterator, body):
             let iterTy = try iterator.infer(env, level)
-            let iterItemTy = Ty.freshVar(level: level)
-            try unify(iterTy, .iterator(iterItemTy))
+            let iterItemTy = Ty.fresh(level: level)
+            try unify(iterTy, .iterator(iterItemTy, level: level))
             let bodyEnv = env.child()
             try bodyEnv.declare(name, ty: iterItemTy)
     
@@ -197,7 +197,7 @@ extension CoreStmt {
             }
         case let .Return(expr):
             let exprTy = try expr?.infer(env, level) ?? .unit
-            if let funcRetTy = TypeEnv.funcReturnTy() {
+            if let (funcRetTy, _) = TypeEnv.peekFunctionInfo() {
                 try unify(exprTy, funcRetTy)
             } else {
                 throw TypeError.cannotReturnOutsideFunctionBody
@@ -205,11 +205,11 @@ extension CoreStmt {
         case .Break:
             break
         case let .Yield(expr):
-            let exprTy = try expr.infer(env, level)
-            if case let .const("iter", args) = TypeEnv.funcReturnTy(), args.count == 1 {
-                try unify(exprTy, args[0])
-            } else {
-                throw TypeError.cannotYieldOutsideIteratorBody
+            _ = try expr.infer(env, level)
+            if case let funcInfo? = TypeEnv.peekFunctionInfo() {
+                if !funcInfo.isIterator {
+                    throw TypeError.cannotYieldOutsideIteratorBody
+                }
             }
         }
     }
