@@ -1,5 +1,5 @@
 
-let isPrime = (sieve, n) -> {
+let isPrime = (sieve, n) => {
     for p in sieve {
         if p * p > n {
             return true
@@ -13,7 +13,7 @@ let isPrime = (sieve, n) -> {
     return true
 }
 
-let primes = iterator max -> {
+let primes = iterator max => {
     yield 2
     
     mut sieve = [2]
@@ -29,7 +29,7 @@ let primes = iterator max -> {
     }
 }
 
-let count = it -> {
+let count = it => {
     mut len = 0
     
     for elem in it {
@@ -39,4 +39,4 @@ let count = it -> {
     len
 }
 
-print(count(primes(1000000)))
+print(primes(1000000)->count)

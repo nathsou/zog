@@ -84,6 +84,11 @@ extension Expr {
             return .Record(fields.map({ (field, val) in (field, val.core(lvl)) }), ty: ty())
         case let .RecordSelect(record, field):
             return .RecordSelect(record.core(lvl), field: field, ty: ty())
+        case let .Pipeline(arg1, f, remArgs):
+            var args = [arg1]
+            args.append(contentsOf: remArgs)
+            
+            return Expr.Call(f: .Var(f), args: args).core(lvl)
         }
     }
 }

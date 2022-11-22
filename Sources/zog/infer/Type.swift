@@ -248,9 +248,9 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
             case let .const(name, args):
                 return "\(name)<\(args.map(go).joined(separator: ", "))>"
             case let .fun(args, ret) where args.count == 1:
-                return "\(go(args[0])) -> \(go(ret))"
+                return "\(go(args[0])) => \(go(ret))"
             case let .fun(args, ret):
-                return "(\(args.map(go).joined(separator: ", "))) -> \(go(ret))"
+                return "(\(args.map(go).joined(separator: ", "))) => \(go(ret))"
             case let .record(row):
                 let entries = row.entries()
                 if entries.isEmpty {
@@ -353,7 +353,7 @@ public func unify(_ s: Ty, _ t: Ty) throws {
                     break
                 case let (.extend(field1, ty1, tail1), .extend(_, _, _)):
                     let isTailUnbound: Bool
-                    if case let .variable(v) = tail1, case .unbound(_, _) = v.ref  {
+                    if case let .variable(v) = tail1, case .unbound(_, _) = v.ref {
                         isTailUnbound = true
                     } else {
                         isTailUnbound = false

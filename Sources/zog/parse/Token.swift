@@ -9,8 +9,8 @@ import Foundation
 
 public enum Symbol: CustomStringConvertible {
     case lparen, rparen, lbracket, rbracket, lcurlybracket, rcurlybracket, comma, semicolon, colon,
-        eq, arrow, plus, minus, star, slash, percent, eqeq, bangeq, lss, leq, gtr, geq, bang, dot,
-        dotdot, dotdotdot, dotdoteq, pipe, pluseq, minuseq, stareq, slasheq
+         eq, thinArrow, thickArrow, plus, minus, star, slash, percent, eqeq, bangeq, lss, leq, gtr,
+         geq, bang, dot, dotdot, dotdotdot, dotdoteq, pipe, pluseq, minuseq, stareq, slasheq
 
     public var description: String {
         switch self {
@@ -24,7 +24,8 @@ public enum Symbol: CustomStringConvertible {
         case .semicolon: return ";"
         case .colon: return ":"
         case .eq: return "="
-        case .arrow: return "->"
+        case .thinArrow: return "->"
+        case .thickArrow: return "=>"
         case .plus: return "+"
         case .minus: return "-"
         case .star: return "*"

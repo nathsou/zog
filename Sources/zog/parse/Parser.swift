@@ -321,7 +321,7 @@ public class Parser {
         return lhs
     }
 
-    // fun -> 'iterator'? ('(' (identifier (',' identifier)*)?)? ')' | identifier) '->' expr | logicalOr
+    // fun -> 'iterator'? ('(' (identifier (',' identifier)*)?)? ')' | identifier) '=>' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
             var args = [String]()
@@ -345,7 +345,7 @@ public class Parser {
                 return nil
             }
 
-            try consume(.symbol(.arrow))
+            try consume(.symbol(.thickArrow))
 
             let body = try expression()
 
@@ -492,27 +492,50 @@ public class Parser {
             return try call()
         }
     }
+    
+    // commas(rule, sep) -> (<rule> (sep <rule>)*)?
+    func sepBy<T>(_ rule: () throws -> T, separator: Token) throws -> [T] {
+        var terms = [T]()
+        
+        if !check(.symbol(.rparen)) {
+            repeat {
+                terms.append(try rule())
+            } while match(separator)
+        }
+        
+        return terms
+    }
+    
+    // commas(rule) -> (<rule> (',' <rule>)*)?
+    func commas<T>(_ rule: () throws -> T) throws -> [T] {
+        return try sepBy(rule, separator: .symbol(.comma))
+    }
 
-    // call -> primary '(' ((expression (',' expression)*)? ')') | ('.' ident))*
+    // call -> primary '(' args ')' | ('.' ident) | ('->' ident '(' args ')'))*
+    // args -> commas(expr)
     func call() throws -> Expr {
         var lhs = try primary()
         
         while true {
             if match(.symbol(.lparen)) {
-                var args = [Expr]()
-
-                if !check(.symbol(.rparen)) {
-                    repeat {
-                        args.append(try expression())
-                    } while match(.symbol(.comma))
-                }
-
+                let args = try commas(expression)
                 try consume(.symbol(.rparen))
-
                 lhs = .Call(f: lhs, args: args)
             } else if match(.symbol(.dot)) {
                 let field = try identifier()
                 lhs = .RecordSelect(lhs, field: field)
+            } else if match(.symbol(.thinArrow)) {
+                let f = try identifier()
+                
+                let remArgs: [Expr]
+                if match(.symbol(.lparen)) {
+                    remArgs = try commas(expression)
+                    try consume(.symbol(.rparen))
+                } else {
+                    remArgs = []
+                }
+                
+                lhs = .Pipeline(arg1: lhs, f: f, remArgs: remArgs)
             } else {
                 break
             }
