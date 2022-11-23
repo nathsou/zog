@@ -323,7 +323,9 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
 
 // see https://github.com/tomprimozic/type-systems
 public func unify(_ s: Ty, _ t: Ty) throws {
+    let startingEq = (s, t)
     var eqs = [(s, t)]
+    
     while let (s, t) = eqs.popLast() {
         if s != t {
             switch (s, t) {
@@ -345,7 +347,7 @@ public func unify(_ s: Ty, _ t: Ty) throws {
                 case let .link(to):
                     eqs.append((to, ty))
                 case .generic(_):
-                    throw TypeError.cannotUnify(s, t)
+                    throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
                 }
             case let (.record(r1), .record(r2)):
                 switch (r1, r2) {
@@ -367,10 +369,10 @@ public func unify(_ s: Ty, _ t: Ty) throws {
                     
                     eqs.append((tail1, tail2))
                 default:
-                    throw TypeError.cannotUnify(.record(r1), .record(r2))
+                    throw TypeError.cannotUnify(startingEq, failedWith: (.record(r1), .record(r2)))
                 }
             default:
-                throw TypeError.cannotUnify(s, t)
+                throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
             }
         }
     }

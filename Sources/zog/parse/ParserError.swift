@@ -12,6 +12,7 @@ public enum ParserError: Error, CustomStringConvertible, Equatable {
     case expectedExpression
     case expectedStatement
     case expectedIdentifier
+    case expectedType
     case invalidAssignmentTarget
     case expected(Token)
 
@@ -22,13 +23,15 @@ public enum ParserError: Error, CustomStringConvertible, Equatable {
         case .expected(let t):
             return "Expected '\(t)'"
         case .expectedExpression:
-            return "Expected expression"
+            return "Expected an expression"
         case .expectedIdentifier:
-            return "Expected identifier"
+            return "Expected an identifier"
+        case .expectedType:
+            return "Expected a type"
         case .invalidAssignmentTarget:
             return "Invalid assignment target"
         case .expectedStatement:
-            return "Expected statement"
+            return "Expected a statement"
         }
     }
 }

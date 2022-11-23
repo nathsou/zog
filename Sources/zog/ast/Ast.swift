@@ -79,6 +79,14 @@ public func indent(_ str: CustomStringConvertible) -> String {
         .joined(separator: "\n")
 }
 
+func ann(_ annotation: Ty?) -> String {
+    if let annotation {
+        return ": \(annotation)"
+    }
+    
+    return ""
+}
+
 public indirect enum Expr: CustomStringConvertible {
     case Literal(Literal)
     case UnaryOp(UnaryOperator, Expr)
@@ -91,7 +99,7 @@ public indirect enum Expr: CustomStringConvertible {
     case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
-    case UseIn(name: String, val: Expr, rhs: Expr)
+    case UseIn(name: String, ty: Ty?, val: Expr, rhs: Expr)
     case Array([Expr])
     case Record([(String, Expr)])
     case RecordSelect(Expr, field: String)
@@ -140,8 +148,8 @@ public indirect enum Expr: CustomStringConvertible {
             return "\(lhs) \(op) \(rhs)"
         case let .Tuple(exprs):
             return "(\(exprs.map({ "\($0)" }).joined(separator: ", ")))"
-        case let .UseIn(name, val, rhs):
-            return "use \(name) = \(val) in \(rhs)"
+        case let .UseIn(name, ty, val, rhs):
+            return "use \(name)\(ann(ty)) = \(val) in \(rhs)"
         case let .Array(elems):
             return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
         case let .Record(fields):
@@ -157,7 +165,7 @@ public indirect enum Expr: CustomStringConvertible {
 
 public enum Stmt: CustomStringConvertible {
     case Expr(Expr)
-    case Let(mut: Bool, name: String, val: Expr)
+    case Let(mut: Bool, name: String, ty: Ty?, val: Expr)
     indirect case While(cond: Expr, body: [Stmt])
     indirect case For(name: String, iterator: Expr, body: [Stmt])
     indirect case IfThen(cond: Expr, then: [Stmt])
@@ -170,10 +178,10 @@ public enum Stmt: CustomStringConvertible {
         switch self {
         case let .Expr(expr):
             return "\(expr)"
-        case let .Let(mut: false, name, val):
-            return "let \(name) = \(val)"
-        case let .Let(mut: true, name, val):
-            return "mut \(name) = \(val)"
+        case let .Let(mut: false, name, ty, val):
+            return "let \(name)\(ann(ty)) = \(val)"
+        case let .Let(mut: true, name, ty, val):
+            return "mut \(name)\(ann(ty)) = \(val)"
         case let .While(cond, body):
             return
                 "while \(cond) {\n\(body.map(indent).joined(separator: "\n"))\n}"

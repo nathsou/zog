@@ -71,10 +71,10 @@ extension Expr {
             return .Assignment(lhs.core(lvl), op, rhs.core(lvl), ty: ty())
         case let .Tuple(elems):
             return .Tuple(elems.map({ $0.core(lvl) }), ty: ty())
-        case let .UseIn(name, val, rhs):
+        case let .UseIn(name, ty, val, rhs):
             let coreRhs = rhs.core(lvl)
             return .Block(
-                [.Let(mut: false, name: name, val: val.core(lvl))],
+                [.Let(mut: false, name: name, ty: ty, val: val.core(lvl))],
                 ret: coreRhs,
                 ty: coreRhs.ty
             )
@@ -95,7 +95,7 @@ extension Expr {
 
 public enum CoreStmt {
     case Expr(CoreExpr)
-    case Let(mut: Bool, name: String, val: CoreExpr)
+    case Let(mut: Bool, name: String, ty: Ty?, val: CoreExpr)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
     indirect case For(name: String, iterator: CoreExpr, body: [CoreStmt])
     indirect case IfThen(cond: CoreExpr, then: [CoreStmt])
@@ -110,8 +110,8 @@ extension Stmt {
         switch self {
         case let .Expr(expr):
             return .Expr(expr.core(lvl))
-        case let .Let(mut, name, val):
-            return .Let(mut: mut, name: name, val: val.core(lvl + 1))
+        case let .Let(mut, name, ty, val):
+            return .Let(mut: mut, name: name, ty: ty, val: val.core(lvl + 1))
         case let .While(cond, body):
             return .While(cond: cond.core(lvl), body: body.map({ $0.core(lvl) }))
         case let .For(name, iterator, body):

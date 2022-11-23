@@ -7,8 +7,8 @@
 
 import Foundation
 
-public enum TypeError: Error, CustomStringConvertible, Equatable {
-    case cannotUnify(Ty, Ty)
+public enum TypeError: Error, CustomStringConvertible {
+    case cannotUnify((Ty, Ty), failedWith: (Ty, Ty)?)
     case recursiveType(Ty, Ty)
     case unknownVariable(String)
     case cannotReturnOutsideFunctionBody
@@ -19,8 +19,15 @@ public enum TypeError: Error, CustomStringConvertible, Equatable {
 
     public var description: String {
         switch self {
-        case let .cannotUnify(s, t):
-            return "Cannot unify \(s) with \(t)"
+        case let .cannotUnify((originalS, originalT), failedWith):
+            if let failedWith {
+                let (s, t) = failedWith
+                if !(s == originalS || s == originalT || t == originalS || t == originalT) {
+                    return "Type '\(originalS)' is incompatible with '\(originalT)' since '\(s)' cannot be unified with '\(t)'"
+                }
+            }
+            
+            return "Type '\(originalS)' is incompatible with '\(originalT)'"
         case let .recursiveType(s, t):
             return "Recursive type: \(s) occurs in \(t)"
         case let .unknownVariable(v):

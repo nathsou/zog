@@ -19,6 +19,8 @@ public class Parser {
         index = 0
         statementStartIndex = 0
     }
+    
+    // ------ meta ------
 
     func peek(_ n: Int = 0) -> Token? {
         guard index < tokens.count else {
@@ -92,6 +94,32 @@ public class Parser {
             return nil
         }
     }
+    
+    // sepBy(rule, sep) -> (<rule> (sep <rule>)*)?
+    func sepBy<T>(_ rule: () throws -> T, separator: Token) throws -> [T] {
+        var terms = [T]()
+        
+        if !check(.symbol(.rparen)) {
+            repeat {
+                terms.append(try rule())
+            } while match(separator)
+        }
+        
+        return terms
+    }
+    
+    // commas(rule) -> (<rule> (',' <rule>)*)?
+    func commas<T>(_ rule: () throws -> T) throws -> [T] {
+        return try sepBy(rule, separator: .symbol(.comma))
+    }
+    
+    func typeAnnotation() throws -> Ty? {
+        if match(.symbol(.colon)) {
+            return try type()
+        }
+        
+        return nil
+    }
 
     func synchronize() {
         advance()
@@ -128,6 +156,8 @@ public class Parser {
 
         return stmts
     }
+    
+    // ------ statements ------
 
     func statement() -> Stmt {
         statementStartIndex = index
@@ -187,11 +217,12 @@ public class Parser {
     // letStmt -> ('let' | 'mut') identifier '=' expr ';'
     func letStmt(isMut: Bool) throws -> Stmt {
         let name = try identifier()
+        let ty = try typeAnnotation()
         try consume(.symbol(.eq))
         let val = try expression()
         try consume(.symbol(.semicolon))
 
-        return .Let(mut: isMut, name: name, val: val)
+        return .Let(mut: isMut, name: name, ty: ty, val: val)
     }
 
     // while -> 'while' expr '{' stmt* '}'
@@ -243,6 +274,8 @@ public class Parser {
 
         return .Expr(expr)
     }
+    
+    // ------ expressions ------
 
     // expr -> useIn
     func expression() throws -> Expr {
@@ -253,12 +286,13 @@ public class Parser {
     func useIn() throws -> Expr {
         if match(.identifier("use")) {
             let name = try identifier()
+            let ty = try typeAnnotation()
             try consume(.symbol(.eq))
             let val = try expression()
             try consume(.keyword(.In))
             let rhs = try expression()
             
-            return Expr.UseIn(name: name, val: val, rhs: rhs)
+            return Expr.UseIn(name: name, ty: ty, val: val, rhs: rhs)
         }
         
         return try ifExpr()
@@ -492,24 +526,6 @@ public class Parser {
             return try call()
         }
     }
-    
-    // commas(rule, sep) -> (<rule> (sep <rule>)*)?
-    func sepBy<T>(_ rule: () throws -> T, separator: Token) throws -> [T] {
-        var terms = [T]()
-        
-        if !check(.symbol(.rparen)) {
-            repeat {
-                terms.append(try rule())
-            } while match(separator)
-        }
-        
-        return terms
-    }
-    
-    // commas(rule) -> (<rule> (',' <rule>)*)?
-    func commas<T>(_ rule: () throws -> T) throws -> [T] {
-        return try sepBy(rule, separator: .symbol(.comma))
-    }
 
     // call -> primary '(' args ')' | ('.' ident) | ('->' ident '(' args ')'))*
     // args -> commas(expr)
@@ -676,5 +692,97 @@ public class Parser {
         default:
             return .Tuple(exprs)
         }
+    }
+    
+    // ------ types ------
+    
+    func type() throws -> Ty {
+        return try functionOrTupleType()
+    }
+    
+    // fun -> '(' commas(ty) ')' '=>' ty | ty '=>' ty | tuple | () | parens | array
+    // tuple -> '(' ty, commas(ty) ')'
+    // parens ->
+    // unit -> '(' ')'
+    func functionOrTupleType() throws -> Ty {
+        // '(' commas(ty) ')' '=>' ty
+        if match(.symbol(.lparen)) {
+            let argTys = try commas(type)
+            try consume(.symbol(.rparen))
+            
+            if match(.symbol(.thickArrow)) {
+                let retTy = try type()
+                return .fun(argTys, retTy)
+            } else { // it's a tuple or unit or parens
+                switch argTys.count {
+                case 0: return .unit
+                case 1: return argTys[0]
+                default: return .tuple(argTys)
+                }
+            }
+        }
+        
+        let lhs = try arrayType()
+        
+        // ty '=>' ty
+        if match(.symbol(.thickArrow)) {
+            let retTy = try type()
+            return .fun([lhs], retTy)
+        }
+        
+        return lhs
+    }
+    
+    // array -> prim '[' ']' | prim
+    func arrayType() throws -> Ty {
+        let lhs = try primitiveType()
+        
+        if match(.symbol(.lbracket)) {
+            try consume(.symbol(.rbracket))
+            return .array(lhs)
+        }
+        
+        return lhs
+    }
+
+    // prim -> unit | num | bool | str | tuple | record | parens
+    func primitiveType() throws -> Ty {
+        switch peek() {
+        case .identifier("num"):
+            advance()
+            return .num
+        case .identifier("bool"):
+            advance()
+            return .bool
+        case .identifier("str"):
+            advance()
+            return .str
+        case .symbol(.lcurlybracket):
+            advance()
+            return try recordType()
+        default:
+            throw ParserError.expectedType
+        }
+    }
+    
+    // record -> '{' commas(ident ':' ty) '}'
+    func recordType() throws -> Ty {
+        var entries = [(String, Ty)]()
+        
+        while case let .identifier(field) = peek() {
+            advance()
+            try consume(.symbol(.colon))
+            let ty = try type()
+            
+            entries.append((field, ty))
+            
+            if !match(.symbol(.comma)) {
+                break
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        
+        return .record(Row.from(entries: entries))
     }
 }

@@ -161,7 +161,7 @@ extension CoreStmt {
         switch self {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
-        case let .Let(_, name, val):
+        case let .Let(_, name, ann, val):
             let valTy: Ty
             
             if case .Fun(_, _, _, let funTy) = val {
@@ -173,6 +173,10 @@ extension CoreStmt {
                 try unify(valTy, funTy)
             } else {
                 valTy = try val.infer(env, level + 1)
+            }
+            
+            if let ann {
+                try unify(ann, valTy)
             }
             
             let genValTy = valTy.generalize(level: level)

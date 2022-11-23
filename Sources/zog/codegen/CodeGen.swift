@@ -121,9 +121,9 @@ extension CoreStmt {
         switch self {
         case let .Expr(expr):
             return .expr(try expr.codegen(ctx))
-        case let .Let(mut: false, name, val):
+        case let .Let(mut: false, name, ty: _, val):
             return .constDecl(ctx.declare(name), try val.codegen(ctx))
-        case let .Let(mut: true, name, val):
+        case let .Let(mut: true, name, ty: _, val):
             return .letDecl(ctx.declare(name), try val.codegen(ctx))
         case let .IfThen(cond, body):
             let bodyCtx = ctx.child()
