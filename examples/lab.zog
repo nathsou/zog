@@ -1,13 +1,7 @@
 
-let tuple: (num => num, num[], { a: str, b: str }) = (n => 3 * n, [1, 2, 3], { a: "hello", b: "zog" })
-tuple->print
+let { a, c: (b, c) } = { a: "Yo!", b: 1, c: (3, true) }
+let _ = print(3)
 
-let sum = (elems: num[]): num => {
-    mut total = 0
-    
-    for n in elems {
-        total += n
-    }
-    
-    total
-}
+print(a)
+print(b)
+print(c)

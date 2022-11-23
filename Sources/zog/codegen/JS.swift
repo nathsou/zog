@@ -24,6 +24,7 @@ public indirect enum JSExpr: CustomStringConvertible {
     case array([JSExpr])
     case object([(String, JSExpr)])
     case objectAccess(JSExpr, field: String)
+    case objectPattern([(String, JSExpr?)])
     
     public var description: String {
         switch self {
@@ -57,14 +58,15 @@ public indirect enum JSExpr: CustomStringConvertible {
             return "{ \(entries.map({ (k, v) in "\(k): \(v)" }).joined(separator: ", ")) }"
         case let .objectAccess(obj, field):
             return "\(obj).\(field)"
+        case let .objectPattern(entries):
+            return "{ \(entries.map({ (k, p) in p != nil ? "\(k): \(p!)" : k }).joined(separator: ", ")) }"
         }
     }
 }
 
 public enum JSStmt: CustomStringConvertible {
     case expr(JSExpr)
-    case constDecl(String, JSExpr)
-    case letDecl(String, JSExpr)
+    case varDecl(mut: Bool, JSExpr, JSExpr)
     case whileLoop(cond: JSExpr, body: [JSStmt])
     case forOfLoop(ident: String, of: JSExpr, body: [JSStmt])
     case ifThen(cond: JSExpr, body: [JSStmt])
@@ -75,8 +77,7 @@ public enum JSStmt: CustomStringConvertible {
     public var description: String {
         switch self {
         case let .expr(expr): return "\(expr);"
-        case let .constDecl(name, val): return "const \(name) = \(val);"
-        case let .letDecl(name, val): return "let \(name) = \(val);"
+        case let .varDecl(mut, name, val): return "\(mut ? "let" : "const") \(name) = \(val);"
         case let .ifThen(cond, body):
             return "if (\(cond)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
         case let .whileLoop(cond, body):

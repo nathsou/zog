@@ -27,7 +27,7 @@ public struct zog {
                     
                     try core.forEach({ stmt in try stmt.infer(env, 0) })
                     print(comment(env), "\n")
-                                    
+                    
                     for stmt in core {
                         context.statements.append(try stmt.codegen(context))
                     }

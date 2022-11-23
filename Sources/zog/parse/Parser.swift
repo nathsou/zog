@@ -12,12 +12,14 @@ public class Parser {
     var index: Int
     var statementStartIndex: Int
     var errors: [(ParserError, start: Int, end: Int)]
-
+    var generalizationLevel: UInt
+    
     init(tokens: [TokenWithPos]) {
         self.tokens = tokens
         errors = []
         index = 0
         statementStartIndex = 0
+        generalizationLevel = 0
     }
     
     // ------ meta ------
@@ -96,7 +98,7 @@ public class Parser {
     }
     
     // sepBy(rule, sep) -> (<rule> (sep <rule>)*)?
-    func sepBy<T>(_ rule: () throws -> T, separator: Token) throws -> [T] {
+    func sepBy<T>(_ rule: () throws -> T, separator: Token) rethrows -> [T] {
         var terms = [T]()
         
         if !check(.symbol(.rparen)) {
@@ -216,13 +218,15 @@ public class Parser {
 
     // letStmt -> ('let' | 'mut') identifier '=' expr ';'
     func letStmt(isMut: Bool) throws -> Stmt {
-        let name = try identifier()
+        let pat = try pattern()
         let ty = try typeAnnotation()
         try consume(.symbol(.eq))
+        generalizationLevel += 1
         let val = try expression()
+        generalizationLevel -= 1
         try consume(.symbol(.semicolon))
 
-        return .Let(mut: isMut, name: name, ty: ty, val: val)
+        return .Let(mut: isMut, pat: pat, ty: ty, val: val)
     }
 
     // while -> 'while' expr '{' stmt* '}'
@@ -285,14 +289,14 @@ public class Parser {
     // useIn -> 'use' ident '=' expr 'in' expr | if
     func useIn() throws -> Expr {
         if match(.identifier("use")) {
-            let name = try identifier()
+            let pat = try pattern()
             let ty = try typeAnnotation()
             try consume(.symbol(.eq))
             let val = try expression()
             try consume(.keyword(.In))
             let rhs = try expression()
             
-            return Expr.UseIn(name: name, ty: ty, val: val, rhs: rhs)
+            return Expr.UseIn(pat: pat, ty: ty, val: val, rhs: rhs)
         }
         
         return try ifExpr()
@@ -785,6 +789,56 @@ public class Parser {
         
         try consume(.symbol(.rcurlybracket))
         
-        return .record(Row.from(entries: entries))
+        return .record(Row.from(entries: entries, tail: Ty.fresh(level: generalizationLevel)))
+    }
+    
+    // ------ patterns ------
+    
+    func pattern() throws -> Pattern {
+        switch peek() {
+        case .symbol(.underscore):
+            advance()
+            return .any
+        case let .identifier(name):
+            advance()
+            return .variable(name)
+        case .symbol(.lparen) where !check(.symbol(.rparen), lookahead: 1):
+            advance()
+            return try tupleOreParensPattern()
+        case .symbol(.lcurlybracket):
+            advance()
+            return try recordPattern()
+        default:
+            throw ParserError.expectedPattern
+        }
+    }
+    
+    func tupleOreParensPattern() throws -> Pattern {
+        let patterns = try commas(pattern)
+        try consume(.symbol(.rparen))
+        
+        if patterns.count == 1 {
+            return patterns[0]
+        }
+        
+        return .tuple(patterns)
+    }
+    
+    func recordPattern() throws -> Pattern {
+        var entries = [(String, Pattern?)]()
+        
+        while case let .identifier(name) = peek() {
+            advance()
+            let pat = match(.symbol(.colon)) ? try pattern() : nil
+            entries.append((name, pat))
+            
+            if !match(.symbol(.comma)) {
+                break
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        
+        return .record(entries)
     }
 }

@@ -121,10 +121,10 @@ extension CoreStmt {
         switch self {
         case let .Expr(expr):
             return .expr(try expr.codegen(ctx))
-        case let .Let(mut: false, name, ty: _, val):
-            return .constDecl(ctx.declare(name), try val.codegen(ctx))
-        case let .Let(mut: true, name, ty: _, val):
-            return .letDecl(ctx.declare(name), try val.codegen(ctx))
+        case let .Let(_, pat: .any, _, val):
+            return try .expr(val.codegen(ctx))
+        case let .Let(mut, pat, ty: _, val):
+            return .varDecl(mut: mut, pat.codegen(ctx), try val.codegen(ctx))
         case let .IfThen(cond, body):
             let bodyCtx = ctx.child()
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
@@ -144,6 +144,41 @@ extension CoreStmt {
             return .yield(try expr.codegen(ctx))
         case .Break:
             return .break_
+        }
+    }
+}
+
+extension CorePattern {
+    public func codegen(_ ctx: CoreContext) -> JSExpr {
+        switch self {
+        case .any:
+            return .variable(ctx.declare("_"))
+        case let .variable(name):
+            return .variable(ctx.declare(name))
+        case let .tuple(patterns):
+            return .array(patterns.map({ $0.codegen(ctx) }))
+        case let .record(entries):
+            var objectEntries = [(String, JSExpr?)]()
+            
+            for (key, pat) in entries {
+                let rhs: JSExpr?
+                
+                if let pat {
+                    rhs = pat.codegen(ctx)
+                } else {
+                    let renaming = ctx.declare(key)
+                                               
+                    if renaming == key {
+                       rhs = nil
+                    } else {
+                        rhs = .variable(renaming)
+                    }
+                }
+                
+                objectEntries.append((key, rhs))
+            }
+            
+            return .objectPattern(objectEntries)
         }
     }
 }

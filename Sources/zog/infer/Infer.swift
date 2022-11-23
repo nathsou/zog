@@ -162,26 +162,21 @@ extension CoreStmt {
         switch self {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
-        case let .Let(_, name, ann, val):
-            let valTy: Ty
+        case let .Let(_, pat, ann, val):
+            let (patternTy, patternVars) = pat.ty(level: level)
             
-            if case .Fun(_, _, _, _, let funTy) = val {
-                // include `name` in the rhs environment
-                // to support recursive closures
-                let rhsEnv = env.child()
-                try rhsEnv.declare(name, ty: funTy)
-                valTy = try val.infer(rhsEnv, level + 1)
-                try unify(valTy, funTy)
-            } else {
-                valTy = try val.infer(env, level + 1)
+            for (name, ty) in patternVars {
+                try env.declare(name, ty: ty)
             }
+            
+            let valTy = try val.infer(env, level + 1)
             
             if let ann {
                 try unify(ann, valTy)
             }
             
-            let genValTy = valTy.generalize(level: level)
-            try env.declare(name, ty: genValTy)
+            try unify(patternTy, valTy)
+            _ = valTy.generalize(level: level)
         case let .For(name, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy = Ty.fresh(level: level)

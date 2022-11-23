@@ -10,7 +10,7 @@ import Foundation
 public enum Symbol: CustomStringConvertible {
     case lparen, rparen, lbracket, rbracket, lcurlybracket, rcurlybracket, comma, semicolon, colon,
          eq, thinArrow, thickArrow, plus, minus, star, slash, percent, eqeq, bangeq, lss, leq, gtr,
-         geq, bang, dot, dotdot, dotdotdot, dotdoteq, pipe, pluseq, minuseq, stareq, slasheq
+         geq, bang, dot, dotdot, dotdotdot, dotdoteq, pipe, pluseq, minuseq, stareq, slasheq, underscore
 
     public var description: String {
         switch self {
@@ -47,6 +47,7 @@ public enum Symbol: CustomStringConvertible {
         case .minuseq: return "-="
         case .stareq: return "*="
         case .slasheq: return "/="
+        case .underscore: return "_"
         }
     }
 }

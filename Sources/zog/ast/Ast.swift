@@ -99,7 +99,7 @@ public indirect enum Expr: CustomStringConvertible {
     case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
-    case UseIn(name: String, ty: Ty?, val: Expr, rhs: Expr)
+    case UseIn(pat: Pattern, ty: Ty?, val: Expr, rhs: Expr)
     case Array([Expr])
     case Record([(String, Expr)])
     case RecordSelect(Expr, field: String)
@@ -148,8 +148,8 @@ public indirect enum Expr: CustomStringConvertible {
             return "\(lhs) \(op) \(rhs)"
         case let .Tuple(exprs):
             return "(\(exprs.map({ "\($0)" }).joined(separator: ", ")))"
-        case let .UseIn(name, ty, val, rhs):
-            return "use \(name)\(ann(ty)) = \(val) in \(rhs)"
+        case let .UseIn(pat, ty, val, rhs):
+            return "use \(pat)\(ann(ty)) = \(val) in \(rhs)"
         case let .Array(elems):
             return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
         case let .Record(fields):
@@ -165,7 +165,7 @@ public indirect enum Expr: CustomStringConvertible {
 
 public enum Stmt: CustomStringConvertible {
     case Expr(Expr)
-    case Let(mut: Bool, name: String, ty: Ty?, val: Expr)
+    case Let(mut: Bool, pat: Pattern, ty: Ty?, val: Expr)
     indirect case While(cond: Expr, body: [Stmt])
     indirect case For(name: String, iterator: Expr, body: [Stmt])
     indirect case IfThen(cond: Expr, then: [Stmt])
@@ -178,10 +178,10 @@ public enum Stmt: CustomStringConvertible {
         switch self {
         case let .Expr(expr):
             return "\(expr)"
-        case let .Let(mut: false, name, ty, val):
-            return "let \(name)\(ann(ty)) = \(val)"
-        case let .Let(mut: true, name, ty, val):
-            return "mut \(name)\(ann(ty)) = \(val)"
+        case let .Let(mut: false, pat, ty, val):
+            return "let \(pat)\(ann(ty)) = \(val)"
+        case let .Let(mut: true, pat, ty, val):
+            return "mut \(pat)\(ann(ty)) = \(val)"
         case let .While(cond, body):
             return
                 "while \(cond) {\n\(body.map(indent).joined(separator: "\n"))\n}"
@@ -200,6 +200,26 @@ public enum Stmt: CustomStringConvertible {
             return "break"
         case let .Error(error, span: (start, end)):
             return "Error(\(error), span: (\(start), \(end)))"
+        }
+    }
+}
+
+public enum Pattern: CustomStringConvertible {
+    case any
+    case variable(String)
+    indirect case tuple([Pattern])
+    indirect case record([(String, Pattern?)])
+    
+    public var description: String {
+        switch self {
+        case .any:
+            return "_"
+        case let .variable(name):
+            return name
+        case let .tuple(patterns):
+            return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", "))"
+        case let .record(entries):
+            return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
         }
     }
 }

@@ -71,13 +71,8 @@ extension Expr {
             return .Assignment(lhs.core(lvl), op, rhs.core(lvl), ty: ty())
         case let .Tuple(elems):
             return .Tuple(elems.map({ $0.core(lvl) }), ty: ty())
-        case let .UseIn(name, ty, val, rhs):
-            let coreRhs = rhs.core(lvl)
-            return .Block(
-                [.Let(mut: false, name: name, ty: ty, val: val.core(lvl))],
-                ret: coreRhs,
-                ty: coreRhs.ty
-            )
+        case let .UseIn(pat, ty, val, rhs):
+            return Expr.Block([.Let(mut: false, pat: pat, ty: ty, val: val)], ret: rhs).core(lvl)
         case let .Array(elems):
             return .Array(elems.map({ $0.core(lvl) }), ty: ty())
         case let .Record(fields):
@@ -95,7 +90,7 @@ extension Expr {
 
 public enum CoreStmt {
     case Expr(CoreExpr)
-    case Let(mut: Bool, name: String, ty: Ty?, val: CoreExpr)
+    case Let(mut: Bool, pat: CorePattern, ty: Ty?, val: CoreExpr)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
     indirect case For(name: String, iterator: CoreExpr, body: [CoreStmt])
     indirect case IfThen(cond: CoreExpr, then: [CoreStmt])
@@ -104,14 +99,13 @@ public enum CoreStmt {
     case Break
 }
 
-
 extension Stmt {
     public func core(_ lvl: UInt) -> CoreStmt {
         switch self {
         case let .Expr(expr):
             return .Expr(expr.core(lvl))
-        case let .Let(mut, name, ty, val):
-            return .Let(mut: mut, name: name, ty: ty, val: val.core(lvl + 1))
+        case let .Let(mut, pat, ty, val):
+            return .Let(mut: mut, pat: pat.core(), ty: ty, val: val.core(lvl + 1))
         case let .While(cond, body):
             return .While(cond: cond.core(lvl), body: body.map({ $0.core(lvl) }))
         case let .For(name, iterator, body):
@@ -127,6 +121,67 @@ extension Stmt {
         case .Error(_, _):
             assertionFailure("Unexpected Error statement in CoreStmt.from")
             return .Break
+        }
+    }
+}
+
+public enum CorePattern {
+    case any
+    case variable(String)
+    indirect case tuple([CorePattern])
+    indirect case record([(String, CorePattern?)])
+    
+    public func ty(level: UInt) -> (Ty, vars: [String:Ty]) {
+        var vars = [String:Ty]()
+        
+        func go(_ pat: CorePattern) -> Ty {
+            switch pat {
+            case .any:
+                return .fresh(level: level)
+            case let .variable(name):
+                if let ty = vars[name] {
+                    return ty
+                }
+                
+                let ty = Ty.fresh(level: level)
+                vars[name] = ty
+                return ty
+            case let .tuple(patterns):
+                return .tuple(patterns.map(go))
+            case let .record(entries):
+                var rowEntries = [(String, Ty)]()
+                
+                for (key, pat) in entries {
+                    let ty: Ty
+                    if let pat {
+                        ty = go(pat)
+                    } else {
+                        ty = Ty.fresh(level: level)
+                        vars[key] = ty
+                    }
+                    
+                    rowEntries.append((key, ty))
+                }
+                
+                return .record(Row.from(entries: rowEntries, tail: .fresh(level: level)))
+            }
+        }
+        
+        return (go(self), vars)
+    }
+}
+
+extension Pattern {
+    public func core() -> CorePattern {
+        switch self {
+        case .any:
+            return .any
+        case let .variable(name):
+            return .variable(name)
+        case let .tuple(args):
+            return .tuple(args.map({ p in p.core() }))
+        case let .record(entries):
+            return .record(entries.map({ (k, p) in (k, p?.core()) }))
         }
     }
 }

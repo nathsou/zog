@@ -170,6 +170,7 @@ public struct Lexer {
             case ";": return .symbol(.semicolon)
             case ":": return .symbol(.colon)
             case "|": return .symbol(.pipe)
+            case "_": return .symbol(.underscore)
             case "=": return .symbol(match(">") ? .thickArrow : match("=") ? .eqeq : .eq)
             case "!": return .symbol(match("=") ? .bangeq : .bang)
             case "<": return .symbol(match("=") ? .leq : .lss)
