@@ -13,7 +13,7 @@ public indirect enum CoreExpr {
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
     case Parens(CoreExpr, ty: Ty)
     case Var(String, ty: Ty)
-    case Fun(args: [String], body: CoreExpr, isIterator: Bool, ty: Ty)
+    case Fun(args: [(String, Ty?)], retTy: Ty?, body: CoreExpr, isIterator: Bool, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
     case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr, ty: Ty)
@@ -30,7 +30,7 @@ public indirect enum CoreExpr {
         case .BinaryOp(_, _, _, let ty): return ty
         case .Parens(_, let ty): return ty
         case .Var(_, let ty): return ty
-        case .Fun(_, _, _, let ty): return ty
+        case .Fun(_, _, _, _, let ty): return ty
         case .Call(_, _, let ty): return ty
         case .Block(_, _, let ty): return ty
         case .If(_, _, _, let ty): return ty
@@ -59,8 +59,8 @@ extension Expr {
             return .Parens(coreExpr, ty: coreExpr.ty)
         case let .Var(name):
             return .Var(name, ty: ty())
-        case let .Fun(args, body, isIterator):
-            return .Fun(args: args, body: body.core(lvl), isIterator: isIterator, ty: ty())
+        case let .Fun(args, retTy, body, isIterator):
+            return .Fun(args: args, retTy: retTy, body: body.core(lvl), isIterator: isIterator, ty: ty())
         case let .Call(f, args):
             return .Call(f: f.core(lvl), args: args.map({ $0.core(lvl) }), ty: ty())
         case let .Block(stmts, ret):

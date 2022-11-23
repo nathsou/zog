@@ -93,7 +93,7 @@ public indirect enum Expr: CustomStringConvertible {
     case BinaryOp(Expr, BinaryOperator, Expr)
     case Parens(Expr)
     case Var(String)
-    case Fun(args: [String], body: Expr, isIterator: Bool)
+    case Fun(args: [(String, Ty?)], retTy: Ty?, body: Expr, isIterator: Bool)
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
     case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)
@@ -117,12 +117,12 @@ public indirect enum Expr: CustomStringConvertible {
             return "(\(expr))"
         case let .Var(v):
             return v
-        case let .Fun(args, body, isIterator):
+        case let .Fun(args, retTy, body, isIterator):
             let res: String
-            if args.count == 1 {
-                res = "\(args[0]) -> \(body)"
+            if args.count == 1, case let (arg, ty) = args[0], ty == nil {
+                res = "\(arg)\(ann(retTy)) -> \(body)"
             } else {
-                res = "(\(args.joined(separator: ", "))) -> \(body)"
+                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).joined(separator: ", ")))\(ann(retTy)) -> \(body)"
             }
             
             if isIterator {

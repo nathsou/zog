@@ -31,15 +31,16 @@ extension CoreExpr {
             }
         case let .Parens(expr, _):
             tau = try expr.infer(env, level)
-        case let .Fun(args, body, isIterator, _):
-            let argsTy = args.map({ _ in Ty.fresh(level: level) })
+        case let .Fun(args, retTyAnn, body, isIterator, _):
             let bodyEnv = env.child()
+            let argTys = args.map({ (_, ty) in ty ?? .fresh(level: level) })
             
-            for (arg, ty) in zip(args, argsTy) {
+            for ((arg, _), ty) in zip(args, argTys) {
                 try bodyEnv.declare(arg, ty: ty)
             }
             
-            let retTy = isIterator ? Ty.iterator(Ty.fresh(level: level), level: level) : Ty.fresh(level: level)
+            let innerRetTy = retTyAnn ?? .fresh(level: level)
+            let retTy = isIterator ? Ty.iterator(innerRetTy, level: level) : innerRetTy
             TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
             var actualRetTy = try body.infer(bodyEnv, level)
             if isIterator {
@@ -50,7 +51,7 @@ extension CoreExpr {
             }
             TypeEnv.popFunctionInfo()
             
-            tau = .fun(argsTy, actualRetTy)
+            tau = .fun(argTys, actualRetTy)
         case let .Call(f, args, retTy):
             let argsTy = try args.map({ arg in try arg.infer(env, level) })
             let funTy = try f.infer(env, level)
@@ -164,7 +165,7 @@ extension CoreStmt {
         case let .Let(_, name, ann, val):
             let valTy: Ty
             
-            if case .Fun(_, _, _, let funTy) = val {
+            if case .Fun(_, _, _, _, let funTy) = val {
                 // include `name` in the rhs environment
                 // to support recursive closures
                 let rhsEnv = env.child()

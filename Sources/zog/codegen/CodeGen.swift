@@ -70,9 +70,9 @@ extension CoreExpr {
             return .binaryOperation(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
         case let .Parens(expr, _): return .parens(try expr.codegen(ctx))
         case let .Var(name, _): return .variable(try ctx.lookup(name))
-        case let .Fun(args, body, isIterator, _):
+        case let .Fun(args, _, body, isIterator, _):
             let funCtx = ctx.child()
-            let newArgs = args.map({ arg in funCtx.declare(arg) })
+            let newArgs = args.map({ (arg, _) in funCtx.declare(arg) })
             let ret = try body.codegen(funCtx)
             
             if case .undefined = ret {} else {

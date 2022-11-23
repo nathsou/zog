@@ -113,9 +113,9 @@ public class Parser {
         return try sepBy(rule, separator: .symbol(.comma))
     }
     
-    func typeAnnotation() throws -> Ty? {
+    func typeAnnotation(primitive: Bool = false) throws -> Ty? {
         if match(.symbol(.colon)) {
-            return try type()
+            return primitive ? try primitiveType() : try type()
         }
         
         return nil
@@ -358,13 +358,15 @@ public class Parser {
     // fun -> 'iterator'? ('(' (identifier (',' identifier)*)?)? ')' | identifier) '=>' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
-            var args = [String]()
+            var args = [(String, Ty?)]()
             let isIterator = match(.keyword(.Iterator))
+            var retTy: Ty? = nil
 
             if match(.symbol(.lparen)) {
                 while case .identifier(let arg) = peek() {
                     advance()
-                    args.append(arg)
+                    let ty = try typeAnnotation()
+                    args.append((arg, ty))
 
                     if !match(.symbol(.comma)) {
                         break
@@ -372,18 +374,18 @@ public class Parser {
                 }
 
                 try consume(.symbol(.rparen))
+                
+                retTy = try typeAnnotation(primitive: true)
             } else if case .identifier(let arg) = peek() {
                 advance()
-                args.append(arg)
-            } else {
-                return nil
+                args.append((arg, nil))
             }
 
             try consume(.symbol(.thickArrow))
 
             let body = try expression()
 
-            return Expr.Fun(args: args, body: body, isIterator: isIterator)
+            return Expr.Fun(args: args, retTy: retTy, body: body, isIterator: isIterator)
         }) {
             return f
         }
