@@ -68,7 +68,7 @@ public enum JSStmt: CustomStringConvertible {
     case expr(JSExpr)
     case varDecl(mut: Bool, JSExpr, JSExpr)
     case whileLoop(cond: JSExpr, body: [JSStmt])
-    case forOfLoop(ident: String, of: JSExpr, body: [JSStmt])
+    case forOfLoop(pat: JSExpr, in: JSExpr, body: [JSStmt])
     case ifThen(cond: JSExpr, body: [JSStmt])
     case return_(JSExpr?)
     case yield(JSExpr)

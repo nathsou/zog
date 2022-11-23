@@ -92,7 +92,7 @@ public enum CoreStmt {
     case Expr(CoreExpr)
     case Let(mut: Bool, pat: CorePattern, ty: Ty?, val: CoreExpr)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
-    indirect case For(name: String, iterator: CoreExpr, body: [CoreStmt])
+    indirect case For(pat: CorePattern, iterator: CoreExpr, body: [CoreStmt])
     indirect case IfThen(cond: CoreExpr, then: [CoreStmt])
     case Return(CoreExpr?)
     case Yield(CoreExpr)
@@ -108,8 +108,12 @@ extension Stmt {
             return .Let(mut: mut, pat: pat.core(), ty: ty, val: val.core(lvl + 1))
         case let .While(cond, body):
             return .While(cond: cond.core(lvl), body: body.map({ $0.core(lvl) }))
-        case let .For(name, iterator, body):
-            return .For(name: name, iterator: iterator.core(lvl), body: body.map({ $0.core(lvl) }))
+        case let .For(pat, iterator, body):
+            return .For(
+                pat: pat.core(),
+                iterator: iterator.core(lvl),
+                body: body.map({ $0.core(lvl) })
+            )
         case let .IfThen(cond, then):
             return .IfThen(cond: cond.core(lvl), then: then.map({ $0.core(lvl) }))
         case let .Return(expr):
@@ -131,7 +135,7 @@ public enum CorePattern {
     indirect case tuple([CorePattern])
     indirect case record([(String, CorePattern?)])
     
-    public func ty(level: UInt) -> (Ty, vars: [String:Ty]) {
+    public func ty(level: UInt) -> (ty: Ty, vars: [String:Ty]) {
         var vars = [String:Ty]()
         
         func go(_ pat: CorePattern) -> Ty {

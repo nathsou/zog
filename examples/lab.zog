@@ -1,7 +1,21 @@
 
 let { a, c: (b, c) } = { a: "Yo!", b: 1, c: (3, true) }
-let _ = print(3)
 
-print(a)
-print(b)
-print(c)
+let pairs = [(1, "a"), (2, "b"), (3, "c")]
+
+let min = (a, b) => if a < b a else b
+
+let zip = iterator (as, bs) => {
+    mut i = 0
+    let len = min(as.length, bs.length)
+    
+    while i < len {
+        yield (as.at(i), bs.at(i))
+        i += 1
+    }
+}
+
+for (k, v) in zip([1, 2, 3], ["a", "b", "c"]) {
+    print(k)
+    print(v)
+}

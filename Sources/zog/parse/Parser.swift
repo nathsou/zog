@@ -216,7 +216,7 @@ public class Parser {
         }
     }
 
-    // letStmt -> ('let' | 'mut') identifier '=' expr ';'
+    // letStmt -> ('let' | 'mut') pattern '=' expr ';'
     func letStmt(isMut: Bool) throws -> Stmt {
         let pat = try pattern()
         let ty = try typeAnnotation()
@@ -238,15 +238,15 @@ public class Parser {
         return .While(cond: cond, body: body)
     }
 
-    // for -> 'for' identifier 'in' expr '{' stmt* '}'
+    // for -> 'for' pattern 'in' expr '{' stmt* '}'
     func forStmt() throws -> Stmt {
-        let name = try identifier()
+        let pat = try pattern()
         try consume(.keyword(.In))
         let iterator = try expression()
         let body = try statementListBlock()
         try consume(.symbol(.semicolon))
 
-        return .For(name: name, iterator: iterator, body: body)
+        return .For(pat: pat, iterator: iterator, body: body)
     }
     
     // ifStmt -> 'if' expr '{' stmt* '}'
@@ -286,7 +286,7 @@ public class Parser {
         return try useIn()
     }
     
-    // useIn -> 'use' ident '=' expr 'in' expr | if
+    // useIn -> 'use' pattern '=' expr 'in' expr | if
     func useIn() throws -> Expr {
         if match(.identifier("use")) {
             let pat = try pattern()

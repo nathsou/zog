@@ -133,11 +133,15 @@ extension CoreStmt {
             let bodyCtx = ctx.child()
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             return .whileLoop(cond: try cond.codegen(ctx), body: bodyCtx.statements)
-        case let .For(name, iterator, body):
+        case let .For(pat, iterator, body):
             let bodyCtx = ctx.child()
-            let newName = bodyCtx.declare(name)
+            let corePat = pat.codegen(ctx)
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
-            return .forOfLoop(ident: newName, of: try iterator.codegen(ctx), body: bodyCtx.statements)
+            return .forOfLoop(
+                pat: corePat,
+                in: try iterator.codegen(ctx),
+                body: bodyCtx.statements
+            )
         case let .Return(expr):
             return .return_(try expr?.codegen(ctx))
         case let .Yield(expr):

@@ -177,12 +177,17 @@ extension CoreStmt {
             
             try unify(patternTy, valTy)
             _ = valTy.generalize(level: level)
-        case let .For(name, iterator, body):
+        case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy = Ty.fresh(level: level)
             try unify(iterTy, .iterator(iterItemTy, level: level))
             let bodyEnv = env.child()
-            try bodyEnv.declare(name, ty: iterItemTy)
+            let (patternTy, patternVars) = pat.ty(level: level)
+            try unify(patternTy, iterItemTy)
+            
+            for (name, ty) in patternVars {
+                try bodyEnv.declare(name, ty: ty)
+            }
     
             for stmt in body {
                 try stmt.infer(bodyEnv, level)
