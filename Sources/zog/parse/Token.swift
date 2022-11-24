@@ -85,6 +85,7 @@ public enum Token: Equatable, CustomStringConvertible {
     case symbol(Symbol)
     case identifier(String)
     case keyword(Keyword)
+    case raw(String)
     indirect case error(ParserError)
 
     public var description: String {
@@ -101,6 +102,8 @@ public enum Token: Equatable, CustomStringConvertible {
             return id
         case .keyword(let kw):
             return "\(kw)"
+        case .raw(let js):
+            return "raw { \(js) }"
         case .error(let error):
             return "\(error)"
         }

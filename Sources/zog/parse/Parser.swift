@@ -577,6 +577,9 @@ public class Parser {
         case .keyword(.False):
             advance()
             return .Literal(.bool(false))
+        case .raw(let js):
+            advance()
+            return .Raw(js: js)
         case .identifier(let n):
             advance()
             return .Var(n)

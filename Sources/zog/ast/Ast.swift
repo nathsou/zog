@@ -104,6 +104,7 @@ public indirect enum Expr: CustomStringConvertible {
     case Record([(String, Expr)])
     case RecordSelect(Expr, field: String)
     case Pipeline(arg1: Expr, f: String, remArgs: [Expr])
+    case Raw(js: String)
 
     public var description: String {
         switch self {
@@ -159,6 +160,8 @@ public indirect enum Expr: CustomStringConvertible {
             return "\(record).\(field)"
         case let .Pipeline(arg1, f, remArgs):
             return "\(arg1)->\(f)(\(remArgs.map({ "\($0)" }).joined(separator: ", "))"
+        case let .Raw(js):
+            return "raw {\n \(indent(js)) \n}"
         }
     }
 }

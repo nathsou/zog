@@ -6,3 +6,11 @@ let snd = ((_, b)) => b
 print(use tuple = (1, true) in { fst: tuple->fst, snd: tuple->snd })
 
 print((id(3), id("yo!")))
+
+let push: (num[], num) => () = raw {(elems, elem) => {
+    elems.push(elem);
+}}
+
+let primes = [2, 3, 5, 7, 11, 13, 17, 19]
+primes->push(23)
+print(primes)

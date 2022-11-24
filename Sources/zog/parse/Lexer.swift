@@ -55,6 +55,7 @@ public struct Lexer {
         case .keyword(.Yield): return true
         case .keyword(.True): return true
         case .keyword(.False): return true
+        case .raw(_): return true
         default: return false
         }
     }
@@ -137,6 +138,30 @@ public struct Lexer {
 
         return .str(String(chars))
     }
+    
+    mutating func parseRawBlock() -> Token {
+        // remove 'raw' token
+        _ = tokens.popLast()
+        var chars = [Character]()
+        var scopeLevel = 1
+        
+        while let c = peek() {
+            _ = advance()
+            
+            if c == "}" {
+                scopeLevel -= 1
+                if scopeLevel == 0 {
+                    break
+                }
+            } else if c == "{" {
+                scopeLevel += 1
+            }
+            
+            chars.append(c)
+        }
+        
+        return .raw(String(chars).trimmingCharacters(in: [" "]))
+    }
 
     mutating func skipSpaces() {
         while let c = peek(), c.isWhitespace {
@@ -164,7 +189,12 @@ public struct Lexer {
             case ")": return .symbol(.rparen)
             case "[": return .symbol(.lbracket)
             case "]": return .symbol(.rbracket)
-            case "{": return .symbol(.lcurlybracket)
+            case "{":
+                if tokens.last?.token == .identifier("raw") {
+                    return parseRawBlock()
+                } else {
+                    return .symbol(.lcurlybracket)
+                }
             case "}": return .symbol(.rcurlybracket)
             case ",": return .symbol(.comma)
             case ";": return .symbol(.semicolon)

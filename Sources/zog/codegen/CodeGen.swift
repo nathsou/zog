@@ -112,6 +112,8 @@ extension CoreExpr {
             return .object(try entries.map({ (k, v) in (k, try v.codegen(ctx)) }))
         case let .RecordSelect(record, field, _):
             return .objectAccess(try record.codegen(ctx), field: field)
+        case let .Raw(js, _):
+            return .raw(js)
         }
     }
 }

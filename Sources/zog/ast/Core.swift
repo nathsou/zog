@@ -22,6 +22,7 @@ public indirect enum CoreExpr {
     case Array([CoreExpr], ty: Ty)
     case Record([(String, CoreExpr)], ty: Ty)
     case RecordSelect(CoreExpr, field: String, ty: Ty)
+    case Raw(js: String, ty: Ty)
     
     public var ty: Ty {
         switch self {
@@ -39,6 +40,7 @@ public indirect enum CoreExpr {
         case .Array(_, let ty): return ty
         case .Record(_, let ty): return ty
         case .RecordSelect(_, _, let ty): return ty
+        case .Raw(_, let ty): return ty
         }
     }
 }
@@ -90,6 +92,8 @@ extension Expr {
             args.append(contentsOf: remArgs)
             
             return Expr.Call(f: .Var(f), args: args).core(lvl)
+        case let .Raw(js):
+            return .Raw(js: js, ty: ty())
         }
     }
 }

@@ -161,6 +161,8 @@ extension CoreExpr {
             let recordTy = try record.infer(env, level)
             try unify(recordTy, partialRecordTy)
             tau = fieldTy
+        case let .Raw(_, ty):
+            tau = ty
         }
         
         let ty = self.ty
