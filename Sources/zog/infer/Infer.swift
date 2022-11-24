@@ -33,10 +33,23 @@ extension CoreExpr {
             tau = try expr.infer(env, level)
         case let .Fun(args, retTyAnn, body, isIterator, _):
             let bodyEnv = env.child()
-            let argTys = args.map({ (_, ty) in ty ?? .fresh(level: level) })
+            var argsInfo = [(pat: CorePattern, ty: Ty, vars: [String:Ty], ann: Ty?)]()
             
-            for ((arg, _), ty) in zip(args, argTys) {
-                try bodyEnv.declare(arg, ty: ty)
+            for (pat, ann) in args {
+                let (ty, vars) = pat.ty(level: level)
+                argsInfo.append((pat, ty, vars, ann))
+            }
+            
+            let argTys = argsInfo.map({ $0.ty })
+            
+            for (_, ty: patTy, vars, ann) in argsInfo {
+                for (variable, ty) in vars {
+                    try bodyEnv.declare(variable, ty: ty)
+                }
+                
+                if let ann {
+                    try unify(patTy, ann)
+                }
             }
             
             let innerRetTy = retTyAnn ?? .fresh(level: level)
@@ -163,20 +176,24 @@ extension CoreStmt {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
         case let .Let(_, pat, ann, val):
-            let (patternTy, patternVars) = pat.ty(level: level)
+            let (patternTy, patternVars) = pat.ty(level: level + 1)
+            let rhsEnv = env.child()
             
-            for (name, ty) in patternVars {
-                try env.declare(name, ty: ty)
+            for (variable, ty) in patternVars {
+                try rhsEnv.declare(variable, ty: ty)
             }
             
-            let valTy = try val.infer(env, level + 1)
+            let valTy = try val.infer(rhsEnv, level + 1)
             
             if let ann {
                 try unify(ann, valTy)
             }
             
             try unify(patternTy, valTy)
-            _ = valTy.generalize(level: level)
+            
+            for (name, ty) in patternVars {
+                try env.declare(name, ty: ty.generalize(level: level))
+            }
         case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy = Ty.fresh(level: level)

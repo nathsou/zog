@@ -70,7 +70,7 @@ public class TypeEnv: CustomStringConvertible {
     }
     
     public var description: String {
-        let vars = self.vars.map({ (v, ty) in "    \(v): \(ty)" })
+        let vars = self.vars.map({ (v, ty) in "    \(v): \(ty.canonical)" })
         return "{\n\(vars.joined(separator: ",\n"))\n}"
     }
 }
@@ -223,21 +223,44 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     public static func fresh(level l: UInt) -> Ty {
         return .variable(Ref(TyVar.fresh(level: l)))
     }
-
+    
     public var description: String {
+        return show(canonical: false)
+    }
+    
+    public var canonical: String {
+        return show(canonical: true)
+    }
+    
+    public func show(canonical: Bool) -> String {
         var generics = Set<TyVarId>()
+        var tyVarNames = [TyVarId:String]()
+        
+        func canonicalized(_ id: TyVarId) -> String {
+            if !canonical {
+                return TyVar.showTyVarId(id)
+            }
+            
+            if let v = tyVarNames[id] {
+                return v
+            }
+            
+            let v = TyVar.showTyVarId(UInt(tyVarNames.count))
+            tyVarNames[id] = v
+            return v
+        }
         
         func go(_ ty: Ty) -> String {
             switch ty {
             case let .variable(tyVar):
                 switch tyVar.ref {
                 case let .unbound(id, _):
-                    return TyVar.showTyVarId(id)
+                    return canonicalized(id)
                 case let .link(to):
                     return go(to)
                 case let .generic(id):
                     generics.insert(id)
-                    return TyVar.showTyVarId(id)
+                    return canonicalized(id)
                 }
             case .const("unit", []):
                 return "()"
@@ -268,7 +291,7 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
         if generics.isEmpty {
             return res
         } else {
-            return "<\(generics.map(TyVar.showTyVarId).sorted().joined(separator: ", "))>(\(res))"
+            return "<\(generics.map({ tyVarNames[$0] ?? TyVar.showTyVarId($0) }).sorted().joined(separator: ", "))>(\(res))"
         }
     }
 
@@ -280,6 +303,10 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
         }
 
         return self
+    }
+    
+    public static func == (s: Ty, t: Ty) -> Bool {
+        return "\(s)" == "\(t)"
     }
 }
 

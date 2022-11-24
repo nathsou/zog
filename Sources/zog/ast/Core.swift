@@ -13,7 +13,7 @@ public indirect enum CoreExpr {
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
     case Parens(CoreExpr, ty: Ty)
     case Var(String, ty: Ty)
-    case Fun(args: [(String, Ty?)], retTy: Ty?, body: CoreExpr, isIterator: Bool, ty: Ty)
+    case Fun(args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, isIterator: Bool, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
     case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr, ty: Ty)
@@ -60,7 +60,13 @@ extension Expr {
         case let .Var(name):
             return .Var(name, ty: ty())
         case let .Fun(args, retTy, body, isIterator):
-            return .Fun(args: args, retTy: retTy, body: body.core(lvl), isIterator: isIterator, ty: ty())
+            return .Fun(
+                args: args.map({ (pat, ty) in (pat.core(), ty) }),
+                retTy: retTy,
+                body: body.core(lvl),
+                isIterator: isIterator,
+                ty: ty()
+            )
         case let .Call(f, args):
             return .Call(f: f.core(lvl), args: args.map({ $0.core(lvl) }), ty: ty())
         case let .Block(stmts, ret):

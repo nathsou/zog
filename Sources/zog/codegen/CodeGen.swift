@@ -72,7 +72,7 @@ extension CoreExpr {
         case let .Var(name, _): return .variable(try ctx.lookup(name))
         case let .Fun(args, _, body, isIterator, _):
             let funCtx = ctx.child()
-            let newArgs = args.map({ (arg, _) in funCtx.declare(arg) })
+            let newArgs = args.map({ (arg, _) in arg.codegen(ctx) })
             let ret = try body.codegen(funCtx)
             
             if case .undefined = ret {} else {

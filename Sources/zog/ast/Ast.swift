@@ -93,7 +93,7 @@ public indirect enum Expr: CustomStringConvertible {
     case BinaryOp(Expr, BinaryOperator, Expr)
     case Parens(Expr)
     case Var(String)
-    case Fun(args: [(String, Ty?)], retTy: Ty?, body: Expr, isIterator: Bool)
+    case Fun(args: [(Pattern, Ty?)], retTy: Ty?, body: Expr, isIterator: Bool)
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
     case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)

@@ -14,8 +14,8 @@ public indirect enum JSExpr: CustomStringConvertible {
     case string(String)
     case variable(String)
     case parens(JSExpr)
-    case closure(args: [String], stmts: [JSStmt])
-    case generator(args: [String], stmts: [JSStmt])
+    case closure(args: [JSExpr], stmts: [JSStmt])
+    case generator(args: [JSExpr], stmts: [JSStmt])
     case call(lhs: JSExpr, args: [JSExpr])
     case unaryOperation(UnaryOperator, JSExpr)
     case binaryOperation(JSExpr, BinaryOperator, JSExpr)
@@ -36,7 +36,7 @@ public indirect enum JSExpr: CustomStringConvertible {
         case let .variable(v): return v
         case let .parens(expr): return "(\(expr))"
         case let .closure(args, stmts):
-            let argsFmt = args.joined(separator: ", ")
+            let argsFmt = args.map({ "\($0)" }).joined(separator: ", ")
             
             if stmts.count == 1, case .return_(let ret) = stmts.last, ret != nil {
                 return "(\(argsFmt)) => \(ret!)"
@@ -44,7 +44,7 @@ public indirect enum JSExpr: CustomStringConvertible {
             
             return "(\(argsFmt)) => {\n\(stmts.map(indent).joined(separator: "\n"))\n}"
         case let .generator(args, stmts):
-            let argsFmt = args.joined(separator: ", ")
+            let argsFmt = args.map({ "\($0)" }).joined(separator: ", ")
             let bodyFmt = stmts.map(indent).joined(separator: "\n")
             return "function* (\(argsFmt)) {\n\(bodyFmt)\n}"
         case let .call(lhs, args): return "\(lhs)(\(args.map({ "\($0)" }).joined(separator: ", ")))"

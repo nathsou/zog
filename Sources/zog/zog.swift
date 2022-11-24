@@ -8,7 +8,7 @@ public struct zog {
                 var lexer = Lexer.init(source: source)
                 let tokens = lexer.lex()
                 let parser = Parser.init(tokens: tokens)
-                let prog = parser.parse()
+                let prog = parser.program()
                 
                 for (error, start, end) in parser.errors {
                     print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")

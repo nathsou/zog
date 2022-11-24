@@ -110,7 +110,7 @@ public class Parser {
         return terms
     }
     
-    // commas(rule) -> (<rule> (',' <rule>)*)?
+    // commas(rule) -> (<rule> (',' <rule>)* ','?)?
     func commas<T>(_ rule: () throws -> T) throws -> [T] {
         return try sepBy(rule, separator: .symbol(.comma))
     }
@@ -142,10 +142,6 @@ public class Parser {
             default: advance()
             }
         }
-    }
-
-    public func parse() -> [Stmt] {
-        program()
     }
 
     // prog -> stmt*
@@ -359,30 +355,27 @@ public class Parser {
         return lhs
     }
 
-    // fun -> 'iterator'? ('(' (identifier (',' identifier)*)?)? ')' | identifier) '=>' expr | logicalOr
+    // fun -> 'iterator'? ('(' commas(pattern (':' type)?) ')' | pattern) '=>' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
-            var args = [(String, Ty?)]()
+            var args = [(Pattern, Ty?)]()
             let isIterator = match(.keyword(.Iterator))
             var retTy: Ty? = nil
 
             if match(.symbol(.lparen)) {
-                while case .identifier(let arg) = peek() {
-                    advance()
-                    let ty = try typeAnnotation()
-                    args.append((arg, ty))
-
-                    if !match(.symbol(.comma)) {
-                        break
-                    }
+                if !check(.symbol(.rparen)) {
+                    repeat {
+                        let pat = try pattern()
+                        let ty = try typeAnnotation()
+                        args.append((pat, ty))
+                    } while match(.symbol(.comma))
                 }
 
                 try consume(.symbol(.rparen))
                 
                 retTy = try typeAnnotation(primitive: true)
-            } else if case .identifier(let arg) = peek() {
-                advance()
-                args.append((arg, nil))
+            } else if let pat = attempt(pattern) {
+                args.append((pat, nil))
             }
 
             try consume(.symbol(.thickArrow))
