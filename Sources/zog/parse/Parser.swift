@@ -13,6 +13,7 @@ public class Parser {
     var statementStartIndex: Int
     var errors: [(ParserError, start: Int, end: Int)]
     var generalizationLevel: UInt
+    var tyParamScopes: [[String:Ty]]
     
     init(tokens: [TokenWithPos]) {
         self.tokens = tokens
@@ -20,6 +21,7 @@ public class Parser {
         index = 0
         statementStartIndex = 0
         generalizationLevel = 0
+        tyParamScopes = []
     }
     
     // ------ meta ------
@@ -75,12 +77,21 @@ public class Parser {
     }
 
     func identifier() throws -> String {
-        if case .identifier(let n) = peek() {
+        if case .identifier(let ident) = peek() {
             advance()
-            return n
+            return ident
         }
 
         throw ParserError.expectedIdentifier
+    }
+    
+    func upperIdentifier() throws -> String {
+        if case .identifier(let ident) = peek(), ident.first!.isUppercase {
+            advance()
+            return ident
+        }
+        
+        throw ParserError.expectedUppercaseIdentifier
     }
 
     func attempt<T>(_ f: () throws -> T?) -> T? {
@@ -121,6 +132,36 @@ public class Parser {
         }
         
         return nil
+    }
+    
+    func pushTyParamScope() {
+        tyParamScopes.append([String:Ty]())
+    }
+    
+    func declareTyParam(_ name: String) -> Ty {
+        if var scope = tyParamScopes.last {
+            let id = TyContext.freshTyVarId()
+            let ty = Ty.variable(Ref(.unbound(id: id, level: generalizationLevel)))
+            scope[name] = ty
+            return ty
+        }
+        
+        assertionFailure("no type parameter scope")
+        return .unit
+    }
+    
+    func lookupTyParam(_ name: String) -> Ty? {
+        for scope in tyParamScopes.reversed() {
+            if let v = scope[name] {
+                return v
+            }
+        }
+        
+        return nil
+    }
+    
+    func popTyParamScope() {
+        _ = tyParamScopes.popLast()
     }
 
     func synchronize() {
@@ -175,49 +216,57 @@ public class Parser {
 
     // stmt -> letStmt | 'return' expr? | 'break' | exprStmt
     func statementThrowing() throws -> Stmt {
+        let stmt: Stmt
+        
+        pushTyParamScope()
+        
         switch peek() {
         case .keyword(.Let):
             advance()
-            return try letStmt(isMut: false)
+            stmt = try letStmt(isMut: false)
         case .keyword(.Mut):
             advance()
-            return try letStmt(isMut: true)
+            stmt = try letStmt(isMut: true)
         case .keyword(.While):
             advance()
-            return try whileStmt()
+            stmt = try whileStmt()
         case .keyword(.For):
             advance()
-            return try forStmt()
+            stmt = try forStmt()
         case .keyword(.If):
             advance()
-            return try ifStmt()
+            stmt = try ifStmt()
         case .keyword(.Return):
             advance()
             let expr = attempt(expression)
             try consume(.symbol(.semicolon))
 
-            return .Return(expr)
+            stmt = .Return(expr)
         case .keyword(.Yield):
             advance()
             let expr = try expression()
             try consume(.symbol(.semicolon))
 
-            return .Yield(expr)
+            stmt = .Yield(expr)
         case .keyword(.Break):
             advance()
             try consume(.symbol(.semicolon))
-            return .Break
+            stmt = .Break
         default:
-            return try exprStmt()
+            stmt = try exprStmt()
         }
+        
+        popTyParamScope()
+        
+        return stmt
     }
 
     // letStmt -> ('let' | 'mut') pattern '=' expr ';'
     func letStmt(isMut: Bool) throws -> Stmt {
         let pat = try pattern()
+        generalizationLevel += 1
         let ty = try typeAnnotation()
         try consume(.symbol(.eq))
-        generalizationLevel += 1
         let val = try expression()
         generalizationLevel -= 1
         try consume(.symbol(.semicolon))
@@ -279,7 +328,11 @@ public class Parser {
 
     // expr -> useIn
     func expression() throws -> Expr {
-        return try useIn()
+        pushTyParamScope()
+        let expr = try useIn()
+        popTyParamScope()
+        
+        return expr
     }
     
     // useIn -> 'use' pattern '=' expr 'in' expr | if
@@ -759,6 +812,12 @@ public class Parser {
         case .identifier("str"):
             advance()
             return .str
+        case .identifier(let name) where name.first!.isUppercase:
+            advance()
+            return try constType(name: name)
+        case .symbol(.singlequote):
+            advance()
+            return try typeParam()
         case .symbol(.lcurlybracket):
             advance()
             return try recordType()
@@ -786,6 +845,28 @@ public class Parser {
         try consume(.symbol(.rcurlybracket))
         
         return .record(Row.from(entries: entries, tail: Ty.fresh(level: generalizationLevel)))
+    }
+    
+    // var -> upperIdentifier ('<' commas(type) '>')?
+    func constType(name: String) throws -> Ty {
+        if match(.symbol(.lss)) {
+            let args = try commas(type)
+            try consume(.symbol(.gtr))
+            return .const(name, args)
+        }
+        
+        return .const(name, [])
+    }
+    
+    // param -> '\'' upperIdentifier
+    func typeParam() throws -> Ty {
+        let name = try upperIdentifier()
+        
+        if let ty = lookupTyParam(name) {
+            return ty
+        }
+        
+        return declareTyParam(name)
     }
     
     // ------ patterns ------

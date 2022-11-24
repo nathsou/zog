@@ -260,7 +260,7 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
                     return go(to)
                 case let .generic(id):
                     generics.insert(id)
-                    return canonicalized(id)
+                    return "'" + canonicalized(id)
                 }
             case .const("unit", []):
                 return "()"
@@ -286,13 +286,7 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
             }
         }
         
-        let res = go(self)
-        
-        if generics.isEmpty {
-            return res
-        } else {
-            return "<\(generics.map({ tyVarNames[$0] ?? TyVar.showTyVarId($0) }).sorted().joined(separator: ", "))>(\(res))"
-        }
+        return go(self)
     }
 
     public func deref() -> Ty {

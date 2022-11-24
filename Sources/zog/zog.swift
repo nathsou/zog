@@ -17,9 +17,6 @@ public struct zog {
                 if parser.errors.isEmpty {
                     let core = prog.map({ stmt in stmt.core(0) })
                     let env = TypeEnv()
-                    try env.declare("print", ty: .fun([.variable(Ref(.generic(0)))], .unit))
-                    let context = CoreContext()
-                    _ = context.declare("print")
                     
                     func comment(_ text: CustomStringConvertible) -> String {
                         return String(describing: env).split(separator: "\n").map({ "// \($0)" }).joined(separator: "\n")
@@ -28,11 +25,12 @@ public struct zog {
                     try core.forEach({ stmt in try stmt.infer(env, 0) })
                     print(comment(env), "\n")
                     
+                    let context = CoreContext()
+                    
                     for stmt in core {
                         context.statements.append(try stmt.codegen(context))
                     }
                     
-                    print("const print = console.log;")
                     for stmt in context.statements {
                         print(stmt)
                     }

@@ -1,4 +1,6 @@
 
+let print: 'T => () = raw { console.log }
+
 let isPrime = (sieve, n) => {
     for p in sieve {
         if p * p > n {

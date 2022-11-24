@@ -1,16 +1,5 @@
 
-let id = x => x
-let fst = ((a, _)) => a
-let snd = ((_, b)) => b
+let print: 'T => () = raw { console.log }
+let id = (x: 'T): 'T => x
 
-print(use tuple = (1, true) in { fst: tuple->fst, snd: tuple->snd })
-
-print((id(3), id("yo!")))
-
-let push: (num[], num) => () = raw {(elems, elem) => {
-    elems.push(elem);
-}}
-
-let primes = [2, 3, 5, 7, 11, 13, 17, 19]
-primes->push(23)
-print(primes)
+let fst = ((a, _): ('A, 'B)): 'A => a

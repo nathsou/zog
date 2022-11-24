@@ -86,7 +86,7 @@ final class inferenceTests: XCTestCase {
             "let b = id(\"yo!\")"
         ])
         
-        XCTAssertEqual(env1.vars["id"]?.canonical, "<A>(A => A)")
+        XCTAssertEqual(env1.vars["id"]?.canonical, "'A => 'A")
         XCTAssertEqual(env1.vars["a"], .num)
         XCTAssertEqual(env1.vars["b"], .str)
         
@@ -94,6 +94,6 @@ final class inferenceTests: XCTestCase {
             "let fst = ((a, _)) => a",
         ])
         
-        XCTAssertEqual(env2.vars["fst"]?.canonical, "<A, B>((A, B) => A)")
+        XCTAssertEqual(env2.vars["fst"]?.canonical, "('A, 'B) => 'A")
     }
 }
