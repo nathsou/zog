@@ -1,5 +1,19 @@
 
 let print: 'T => () = raw { console.log }
+let iter: 'T[] => Iterator<'T> = raw { array => array[Symbol.iterator]() }
+let len: 'T[] => num = raw { array => array.length }
+let at: ('T[], num) => 'T = raw { (elems, index) => elems[index] }
 let id = (x: 'T): 'T => x
-
 let fst = ((a, _): ('A, 'B)): 'A => a
+
+let sum = xs => {
+    mut total = 0
+    
+    for x in xs {
+        total += x
+    }
+    
+    total
+}
+
+[1, 2, 3]->iter->sum->print

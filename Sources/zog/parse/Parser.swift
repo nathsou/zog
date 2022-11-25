@@ -139,10 +139,10 @@ public class Parser {
     }
     
     func declareTyParam(_ name: String) -> Ty {
-        if var scope = tyParamScopes.last {
+        if !tyParamScopes.isEmpty {
             let id = TyContext.freshTyVarId()
             let ty = Ty.variable(Ref(.unbound(id: id, level: generalizationLevel)))
-            scope[name] = ty
+            tyParamScopes[tyParamScopes.count - 1][name] = ty
             return ty
         }
         
@@ -328,11 +328,7 @@ public class Parser {
 
     // expr -> useIn
     func expression() throws -> Expr {
-        pushTyParamScope()
-        let expr = try useIn()
-        popTyParamScope()
-        
-        return expr
+        return try useIn()
     }
     
     // useIn -> 'use' pattern '=' expr 'in' expr | if

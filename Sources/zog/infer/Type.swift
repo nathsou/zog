@@ -202,22 +202,15 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
     }
 
     public static func tuple(_ elems: [Ty]) -> Ty {
-        return .const("tuple", elems)
+        return .const("Tuple", elems)
     }
     
     public static func array(_ elemTy: Ty) -> Ty {
-        return .record(Row.from(entries: [
-            ("at", .fun([.num], elemTy)),
-            ("push", .fun([elemTy], .unit)),
-            ("length", .num),
-            ("Symbol.iterator", .const("iterator", [elemTy])),
-        ]))
+        return .const("Array", [elemTy])
     }
     
-    public static func iterator(_ ty: Ty, level: UInt) -> Ty {
-        return .record(Row.from(entries: [
-            ("Symbol.iterator", .const("iterator", [ty])),
-        ], tail: Ty.fresh(level: level)))
+    public static func iterator(_ ty: Ty) -> Ty {
+        return .const("Iterator", [ty])
     }
     
     public static func fresh(level l: UInt) -> Ty {
@@ -264,8 +257,10 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
                 }
             case .const("unit", []):
                 return "()"
-            case let .const("tuple", elems):
+            case let .const("Tuple", elems):
                 return "(\(elems.map(go).joined(separator: ", ")))"
+            case let .const("Array", args) where args.count == 1:
+                return "\(go(args[0]))[]"
             case let .const(name, []):
                 return name
             case let .const(name, args):
@@ -279,7 +274,7 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
                 if entries.isEmpty {
                     return "{}"
                 } else {
-                    let fields = row.entries().map({ (k, v) in "\(k): \(v)" }).joined(separator: ", ")
+                    let fields = row.entries().map({ (k, v) in "\(k): \(go(v))" }).joined(separator: ", ")
                     
                     return "{ \(fields) }"
                 }

@@ -14,6 +14,7 @@ final class inferenceTests: XCTestCase {
         var lexer = Lexer.init(source: source)
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
+        parser.pushTyParamScope()
         let expr = try parser.expression().core(0)
         let env = TypeEnv()
         return try expr.infer(env, 0)

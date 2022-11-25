@@ -53,11 +53,11 @@ extension CoreExpr {
             }
             
             let innerRetTy = retTyAnn ?? .fresh(level: level)
-            let retTy = isIterator ? Ty.iterator(innerRetTy, level: level) : innerRetTy
+            let retTy = isIterator ? Ty.iterator(innerRetTy) : innerRetTy
             TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
             var actualRetTy = try body.infer(bodyEnv, level)
             if isIterator {
-                actualRetTy = .iterator(.fresh(level: level), level: level)
+                actualRetTy = .iterator(.fresh(level: level))
                 try unify(retTy, actualRetTy)
             } else {
                 try unify(retTy, actualRetTy)
@@ -199,7 +199,7 @@ extension CoreStmt {
         case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy = Ty.fresh(level: level)
-            try unify(iterTy, .iterator(iterItemTy, level: level))
+            try unify(iterTy, .iterator(iterItemTy))
             let bodyEnv = env.child()
             let (patternTy, patternVars) = pat.ty(level: level)
             try unify(patternTy, iterItemTy)
@@ -233,6 +233,8 @@ extension CoreStmt {
             if case let funcInfo? = TypeEnv.peekFunctionInfo() {
                 if !funcInfo.isIterator {
                     throw TypeError.cannotYieldOutsideIteratorBody
+                } else {
+                    try unify(funcInfo.returnTy, .iterator(expr.ty))
                 }
             }
         }

@@ -1,8 +1,10 @@
 
 let print: 'T => () = raw { console.log }
+let iter: 'T[] => Iterator<'T> = raw { array => array[Symbol.iterator]() }
+let push: ('T[], 'T) => () = raw { (array, elem) => array.push(elem) }
 
 let isPrime = (sieve, n) => {
-    for p in sieve {
+    for p in sieve->iter {
         if p * p > n {
             return true
         }
@@ -23,7 +25,7 @@ let primes = iterator max => {
     
     while n <= max {
         if isPrime(sieve, n) {
-            sieve.push(n)
+            sieve->push(n)
             yield n
         }
         
