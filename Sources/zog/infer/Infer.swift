@@ -121,7 +121,7 @@ extension CoreExpr {
                 tau = .num
             case .eq:
                 try unify(lhsTy, rhsTy)
-                tau = lhsTy
+                tau = rhsTy
             }
         case let .Block(stmts, ret, ty):
             let blockEnv = env.child()
@@ -177,7 +177,7 @@ extension CoreStmt {
         switch self {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
-        case let .Let(_, pat, ann, val):
+        case let .Let(isMut, pat, ann, val):
             let (patternTy, patternVars) = pat.ty(level: level + 1)
             let rhsEnv = env.child()
             
@@ -194,7 +194,11 @@ extension CoreStmt {
             try unify(patternTy, valTy)
             
             for (name, ty) in patternVars {
-                try env.declare(name, ty: ty.generalize(level: level))
+                // https://en.wikipedia.org/wiki/Value_restriction
+                try env.declare(
+                    name,
+                    ty: !isMut ? ty.generalize(level: level) : ty
+                )
             }
         case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)

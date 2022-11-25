@@ -748,30 +748,29 @@ public class Parser {
     // ------ types ------
     
     func type() throws -> Ty {
-        return try functionOrTupleType()
+        return try functionType()
     }
     
-    // fun -> '(' commas(ty) ')' '=>' ty | ty '=>' ty | tuple | () | parens | array
-    // tuple -> '(' ty, commas(ty) ')'
-    // parens ->
-    // unit -> '(' ')'
-    func functionOrTupleType() throws -> Ty {
+    // fun -> '(' commas(ty) ')' '=>' ty | ty '=>' ty | array
+    func functionType() throws -> Ty {
         // '(' commas(ty) ')' '=>' ty
-        if match(.symbol(.lparen)) {
-            let argTys = try commas(type)
-            try consume(.symbol(.rparen))
-            
-            if match(.symbol(.thickArrow)) {
-                let retTy = try type()
-                return .fun(argTys, retTy)
-            } else { // it's a tuple or unit or parens
-                switch argTys.count {
-                case 0: return .unit
-                case 1: return argTys[0]
-                default: return .tuple(argTys)
+        if check(.symbol(.lparen)) {
+            if let funTy = attempt({
+                advance()
+                let argTys = try commas(type)
+                try consume(.symbol(.rparen))
+                
+                if match(.symbol(.thickArrow)) {
+                    let retTy = try type()
+                    return Ty.fun(argTys, retTy)
+                } else {
+                    throw ParserError.expected(.symbol(.thickArrow))
                 }
+            }) {
+                return funTy
             }
         }
+
         
         let lhs = try arrayType()
         
@@ -817,8 +816,25 @@ public class Parser {
         case .symbol(.lcurlybracket):
             advance()
             return try recordType()
+        case .symbol(.lparen):
+            advance()
+            return try tupleOrParensOrUnitType()
         default:
             throw ParserError.expectedType
+        }
+    }
+    
+    // tuple -> '(' ty, commas(ty) ')'
+    // parens -> '(' type ')'
+    // unit -> '(' ')'
+    func tupleOrParensOrUnitType() throws -> Ty {
+        let tys = try commas(type)
+        try consume(.symbol(.rparen))
+        
+        switch tys.count {
+        case 0: return .unit
+        case 1: return tys[0]
+        default: return .tuple(tys)
         }
     }
     

@@ -97,4 +97,15 @@ final class inferenceTests: XCTestCase {
         
         XCTAssertEqual(env2.vars["fst"]?.canonical, "('A, 'B) => 'A")
     }
+    
+    func testInferArrayTy() throws {
+        let env1 = try infer(statements: ["let a1 = []", "mut a2 = []"])
+        XCTAssertEqual(env1.vars["a1"]?.canonical, "'A[]")
+        XCTAssertEqual(env1.vars["a2"]?.canonical, "A[]")
+        
+        let env2 = try infer(statements: ["let array = [1, 2, 3]"])
+        XCTAssertEqual(env2.vars["array"]?.canonical, "num[]")
+        
+        XCTAssertThrowsError(try infer(statements: ["let array = [1, true, ()]"]))
+    }
 }

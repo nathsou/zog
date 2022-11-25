@@ -40,7 +40,11 @@ public indirect enum JSExpr: CustomStringConvertible {
             let argsFmt = args.map({ "\($0)" }).joined(separator: ", ")
             
             if stmts.count == 1, case .return_(let ret) = stmts.last, ret != nil {
-                return "(\(argsFmt)) => \(ret!)"
+                if case .object(_) = ret {
+                   return "(\(argsFmt)) => (\(ret!))"
+                } else {
+                    return "(\(argsFmt)) => \(ret!)"
+                }
             }
             
             return "(\(argsFmt)) => {\n\(stmts.map(indent).joined(separator: "\n"))\n}"
