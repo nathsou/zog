@@ -72,7 +72,7 @@ extension CoreExpr {
         case let .Var(name, _): return .variable(try ctx.lookup(name))
         case let .Fun(args, _, body, isIterator, _):
             let funCtx = ctx.child()
-            let newArgs = args.map({ (arg, _) in arg.codegen(ctx) })
+            let newArgs = try args.map({ (arg, _) in try arg.codegen(ctx) })
             let ret = try body.codegen(funCtx)
             
             if case .undefined = ret {} else {
@@ -108,12 +108,23 @@ extension CoreExpr {
             return .assignment(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
         case let .Tuple(elems, _), let .Array(elems, _):
             return .array(try elems.map({ try $0.codegen(ctx) }))
+        case let .ArraySubscript(elems, index, _):
+            return .arraySubscript(try elems.codegen(ctx), try index.codegen(ctx))
         case let .Record(entries, _):
             return .object(try entries.map({ (k, v) in (k, try v.codegen(ctx)) }))
         case let .RecordSelect(record, field, _):
             return .objectAccess(try record.codegen(ctx), field: field)
         case let .Raw(js, _):
             return .raw(js)
+        case let .Match(expr, cases, ty):
+            let dt = DecisionTree.from(exprTy: expr.ty, cases: cases)
+            let subjectVarName = "subject"
+            
+            return try CoreExpr.Block(
+                [.Let(mut: false, pat: .variable(subjectVarName), ty: expr.ty, val: expr)],
+                ret: dt.rewrite(subject: .Var(subjectVarName, ty: expr.ty), returnTy: ty),
+                ty: ty
+            ).codegen(ctx)
         }
     }
 }
@@ -126,7 +137,7 @@ extension CoreStmt {
         case let .Let(_, pat: .any, _, val):
             return try .expr(val.codegen(ctx))
         case let .Let(mut, pat, ty: _, val):
-            return .varDecl(mut: mut, pat.codegen(ctx), try val.codegen(ctx))
+            return .varDecl(mut: mut, try pat.codegen(ctx), try val.codegen(ctx))
         case let .IfThen(cond, body):
             let bodyCtx = ctx.child()
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
@@ -137,7 +148,7 @@ extension CoreStmt {
             return .whileLoop(cond: try cond.codegen(ctx), body: bodyCtx.statements)
         case let .For(pat, iterator, body):
             let bodyCtx = ctx.child()
-            let corePat = pat.codegen(ctx)
+            let corePat = try pat.codegen(ctx)
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             return .forOfLoop(
                 pat: corePat,
@@ -155,14 +166,17 @@ extension CoreStmt {
 }
 
 extension CorePattern {
-    public func codegen(_ ctx: CoreContext) -> JSExpr {
+    public func codegen(_ ctx: CoreContext) throws -> JSExpr {
         switch self {
         case .any:
             return .variable(ctx.declare("_"))
         case let .variable(name):
             return .variable(ctx.declare(name))
+        case let .literal(lit):
+            assertionFailure("pattern is not infallible")
+            return try CoreExpr.Literal(lit, ty: lit.ty).codegen(ctx)
         case let .tuple(patterns):
-            return .array(patterns.map({ $0.codegen(ctx) }))
+            return .array(try patterns.map({ try $0.codegen(ctx) }))
         case let .record(entries):
             var objectEntries = [(String, JSExpr?)]()
             
@@ -170,7 +184,7 @@ extension CorePattern {
                 let rhs: JSExpr?
                 
                 if let pat {
-                    rhs = pat.codegen(ctx)
+                    rhs = try pat.codegen(ctx)
                 } else {
                     let renaming = ctx.declare(key)
                                                
@@ -186,5 +200,56 @@ extension CorePattern {
             
             return .objectPattern(objectEntries)
         }
+    }
+}
+
+func caseCondition(subject: CoreExpr, ctor: Ctor) -> CoreExpr? {
+    switch ctor {
+    case .literal(let lit):
+        return .BinaryOp(subject, .equ, .Literal(lit, ty: lit.ty), ty: .bool)
+    default:
+        return nil
+    }
+}
+
+extension DecisionTree {
+    func rewrite(subject: CoreExpr, returnTy: Ty) -> CoreExpr {
+        func aux(_ dt: DecisionTree, subject: CoreExpr) -> CoreExpr {
+            switch dt {
+            case let .leaf(action):
+                return action
+            case let .switch_(path, cases, defaultCase):
+                func g(_ cases: [(ctor: Ctor, dt: DecisionTree)]) -> CoreExpr {
+                    if cases.isEmpty {
+                        if let defaultCase {
+                            return defaultCase.rewrite(subject: subject, returnTy: returnTy)
+                        } else {
+                            return .Literal(.unit, ty: .unit)
+                        }
+                    }
+                    
+                    let proj = subject.at(path: path)
+                    let then = cases[0].dt.rewrite(subject: subject, returnTy: returnTy)
+
+                    if let cond = caseCondition(
+                        subject: proj,
+                        ctor: cases[0].ctor
+                    ) {
+                        return .If(
+                            cond: cond,
+                            thenExpr: then,
+                            elseExpr: g(Array(cases[1...])),
+                            ty: returnTy
+                        )
+                    } else {
+                        return then
+                    }
+                }
+                
+                return g(cases)
+            }
+        }
+        
+        return aux(self, subject: subject)
     }
 }

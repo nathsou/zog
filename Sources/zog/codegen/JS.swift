@@ -22,6 +22,7 @@ public indirect enum JSExpr: CustomStringConvertible {
     case ternary(cond: JSExpr, thenExpr: JSExpr, elseExpr: JSExpr)
     case assignment(JSExpr, AssignmentOperator, JSExpr)
     case array([JSExpr])
+    case arraySubscript(JSExpr, JSExpr)
     case object([(String, JSExpr)])
     case objectAccess(JSExpr, field: String)
     case objectPattern([(String, JSExpr?)])
@@ -58,6 +59,7 @@ public indirect enum JSExpr: CustomStringConvertible {
         case let .ternary(cond, thenExpr, elseExpr): return "\(cond) ? \(thenExpr) : \(elseExpr)"
         case let .assignment(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
         case let .array(elems): return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
+        case let .arraySubscript(elems, index): return "\(elems)[\(index)]"
         case let .object(entries) where entries.isEmpty: return "{}"
         case let .object(entries):
             return "{ \(entries.map({ (k, v) in "\(k): \(v)" }).joined(separator: ", ")) }"

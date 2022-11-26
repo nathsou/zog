@@ -7,22 +7,21 @@
 
 import Foundation
 
+extension CorePattern {
+    func checkIfInfallible() throws {
+        if !self.isInfallible() {
+            throw TypeError.patternDestructuringCanFail(self)
+        }
+    }
+}
+
 extension CoreExpr {
     public func infer(_ env: TypeEnv, _ level: UInt) throws -> Ty {
         let tau: Ty
         
         switch self {
         case let .Literal(lit, _):
-            switch lit {
-            case .bool(_):
-                tau = .bool
-            case .num(_):
-                tau = .num
-            case .str(_):
-                tau = .str
-            case .unit:
-                tau = .unit
-            }
+            tau = lit.ty
         case let .Var(name, _):
             if let ty = env.lookup(name) {
                 tau = ty.instantiate(level: level)
@@ -36,6 +35,7 @@ extension CoreExpr {
             var argsInfo = [(pat: CorePattern, ty: Ty, vars: [String:Ty], ann: Ty?)]()
             
             for (pat, ann) in args {
+                try pat.checkIfInfallible()
                 let (ty, vars) = pat.ty(level: level)
                 argsInfo.append((pat, ty, vars, ann))
             }
@@ -152,6 +152,13 @@ extension CoreExpr {
             }
             
             tau = .array(elemTy)
+        case let .ArraySubscript(elems, index, _):
+            let itemTy = Ty.fresh(level: level)
+            let arrayTy = try elems.infer(env, level)
+            try unify(arrayTy, .array(itemTy))
+            let indexTy = try index.infer(env, level)
+            try unify(indexTy, .num)
+            tau = itemTy
         case let .Record(entries, _):
             let fields = try entries.map({ (field, val) in (field, try val.infer(env, level)) })
             tau = .record(Row.from(entries: fields))
@@ -162,6 +169,21 @@ extension CoreExpr {
             try unify(recordTy, partialRecordTy)
             tau = fieldTy
         case let .Raw(_, ty):
+            tau = ty
+        case let .Match(expr, cases, ty):
+            let exprTy = try expr.infer(env, level)
+            
+            for (pat, body) in cases {
+                let (patTy, _) = pat.ty(level: level)
+                try unify(patTy, exprTy)
+                let bodyTy = try body.infer(env, level)
+                try unify(bodyTy, ty)
+            }
+            
+            if cases.isEmpty {
+                try unify(ty, .unit)
+            }
+            
             tau = ty
         }
         
@@ -178,6 +200,7 @@ extension CoreStmt {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
         case let .Let(isMut, pat, ann, val):
+            try pat.checkIfInfallible()
             let (patternTy, patternVars) = pat.ty(level: level + 1)
             let rhsEnv = env.child()
             

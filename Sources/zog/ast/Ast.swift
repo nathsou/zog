@@ -7,11 +7,11 @@
 
 import Foundation
 
-public enum Literal: CustomStringConvertible {
+public enum Literal: CustomStringConvertible, Hashable {
+    case unit
     case bool(Bool)
     case num(Float64)
     case str(String)
-    case unit
 
     public var description: String {
         switch self {
@@ -20,6 +20,15 @@ public enum Literal: CustomStringConvertible {
         case .num(let x): return "\(x)"
         case .str(let s): return "\"\(s)\""
         case .unit: return "()"
+        }
+    }
+    
+    public var ty: Ty {
+        switch self {
+        case .unit: return .unit
+        case .bool(_): return .bool
+        case .num(_): return .num
+        case .str(_): return .str
         }
     }
 }
@@ -105,6 +114,7 @@ public indirect enum Expr: CustomStringConvertible {
     case RecordSelect(Expr, field: String)
     case Pipeline(arg1: Expr, f: String, remArgs: [Expr])
     case Raw(js: String)
+    case Match(Expr, cases: [(Pattern, Expr)])
 
     public var description: String {
         switch self {
@@ -121,9 +131,9 @@ public indirect enum Expr: CustomStringConvertible {
         case let .Fun(args, retTy, body, isIterator):
             let res: String
             if args.count == 1, case let (arg, ty) = args[0], ty == nil {
-                res = "\(arg)\(ann(retTy)) -> \(body)"
+                res = "\(arg)\(ann(retTy)) => \(body)"
             } else {
-                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).joined(separator: ", ")))\(ann(retTy)) -> \(body)"
+                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).joined(separator: ", ")))\(ann(retTy)) => \(body)"
             }
             
             if isIterator {
@@ -138,7 +148,7 @@ public indirect enum Expr: CustomStringConvertible {
                 if stmts.isEmpty {
                     return "{ \(ret) }"
                 } else {
-                    return "{\n\(stmts.map(indent).joined(separator: "\n"))\(ret)\n}"
+                    return "{\n\(stmts.map(indent).joined(separator: "\n"))\n\(indent(ret))\n}"
                 }
             } else {
                 return "{\n\(stmts.map(indent).joined(separator: "\n"))\n}"
@@ -159,9 +169,11 @@ public indirect enum Expr: CustomStringConvertible {
         case let .RecordSelect(record, field):
             return "\(record).\(field)"
         case let .Pipeline(arg1, f, remArgs):
-            return "\(arg1)->\(f)(\(remArgs.map({ "\($0)" }).joined(separator: ", "))"
+            return "\(arg1)->\(f)(\(remArgs.map({ "\($0)" }).joined(separator: ", ")))"
         case let .Raw(js):
             return "raw {\n \(indent(js)) \n}"
+        case let .Match(expr, cases):
+            return "match \(expr) {\n\(cases.map({ (pat, body) in indent("\(pat) => \(body)") }).joined(separator: "\n"))\n}"
         }
     }
 }
@@ -210,6 +222,7 @@ public enum Stmt: CustomStringConvertible {
 public enum Pattern: CustomStringConvertible {
     case any
     case variable(String)
+    case literal(Literal)
     indirect case tuple([Pattern])
     indirect case record([(String, Pattern?)])
     
@@ -219,8 +232,10 @@ public enum Pattern: CustomStringConvertible {
             return "_"
         case let .variable(name):
             return name
+        case let .literal(lit):
+            return "\(lit)"
         case let .tuple(patterns):
-            return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", "))"
+            return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", ")))"
         case let .record(entries):
             return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
         }

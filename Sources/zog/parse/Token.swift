@@ -55,7 +55,8 @@ public enum Symbol: CustomStringConvertible {
 }
 
 public enum Keyword: String {
-    case Let, Mut, If, Else, For, In, Return, Yield, Break, While, Check, And, Or, True, False, Iterator
+    case Let, Mut, If, Else, For, In, Return, Yield, Break, While, Check, And, Or, True, False,
+         Iterator, Match
 
     public static func parse(_ str: String) -> Keyword? {
         switch str {
@@ -75,6 +76,7 @@ public enum Keyword: String {
         case "true": return .True
         case "false": return .False
         case "iterator": return .Iterator
+        case "match": return .Match
         default: return nil
         }
     }

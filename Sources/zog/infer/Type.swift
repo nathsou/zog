@@ -145,8 +145,8 @@ public enum Row: Equatable {
         return row
     }
     
-    public func entries() -> [(String, Ty)] {
-        var entries = [(String, Ty)]()
+    func entries() -> [(key: String, ty: Ty)] {
+        var entries = [(key: String, ty: Ty)]()
         
         func go(_ row: Row) {
             switch row {
@@ -165,7 +165,11 @@ public enum Row: Equatable {
         return entries
     }
     
-    public func map(types f: (_ ty: Ty) -> Ty) -> Row {
+    func sortedEntries() ->[(key: String, ty: Ty)] {
+        return entries().sorted(by: { (a, b) in a.key < b.key })
+    }
+    
+    func map(types f: (_ ty: Ty) -> Ty) -> Row {
         switch self {
         case .empty:
             return .empty

@@ -1,43 +1,9 @@
 
 let print: 'T => () = raw { console.log }
-let iter: 'T[] => Iterator<'T> = raw { array => array[Symbol.iterator]() }
-let len: 'T[] => num = raw { array => array.length }
-let at: ('T[], num) => 'T = raw { (elems, index) => elems[index] }
-let id = (x: 'T): 'T => x
-let fst = ((a, _): ('A, 'B)): 'A => a
-let next: Iterator<'T> => { value: 'T, done: bool } = raw { it => it.next() }
-let push: ('T[], 'T) => () = raw { (array, elem) => array.push(elem) }
-let min: (num, num) => num = raw { Math.min }
-let createArray = () => []
 
-let range = iterator (start, end) => {
-    mut i = start
-    
-    while i < end {
-        yield i
-        i += 1
-    }
+let matched = match (3, "yolo", (true, { b: 1, a: 2 })) {
+    (_, "yolo", (_, { a: 2 })) => true
+    _ => false
 }
 
-let sum = xs => {
-    mut total = 0
-    
-    for x in xs {
-        total += x
-    }
-    
-    total
-}
-
-let zip = (xs, ys) => {
-    let minLen = min(xs->len, ys->len)
-    mut pairs = []
-    
-    for index in range(0, minLen) {
-        pairs->push((xs->at(index), ys->at(index)))
-    }
-    
-    pairs
-}
-
-zip([1, 2, 3], ["a", "b", "c"])->print
+print(matched)

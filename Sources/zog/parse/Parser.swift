@@ -347,7 +347,7 @@ public class Parser {
         return try ifExpr()
     }
 
-    // if -> 'if' expr expr 'else' expr | assignment
+    // if -> 'if' expr expr 'else' expr | match
     func ifExpr() throws -> Expr {
         if match(.keyword(.If)) {
             let cond = try expression()
@@ -358,6 +358,29 @@ public class Parser {
             return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
         }
 
+        return try matchExpr()
+    }
+    
+    // match -> 'match' expr '{' (pattern '=>' expr ';')* '}'
+    func matchExpr() throws -> Expr {
+        if match(.keyword(.Match)) {
+            let subject = try expression()
+            var cases = [(Pattern, Expr)]()
+            try consume(.symbol(.lcurlybracket))
+            
+            repeat {
+                let pat = try pattern()
+                try consume(.symbol(.thickArrow))
+                let body = try expression()
+                try consume(.symbol(.semicolon))
+                cases.append((pat, body))
+            } while !check(.symbol(.rcurlybracket))
+            
+            try consume(.symbol(.rcurlybracket))
+            
+            return .Match(subject, cases: cases)
+        }
+        
         return try assignment()
     }
 
@@ -897,6 +920,18 @@ public class Parser {
         case .symbol(.lcurlybracket):
             advance()
             return try recordPattern()
+        case .num(let x):
+            advance()
+            return .literal(.num(x))
+        case .str(let s):
+            advance()
+            return .literal(.str(s))
+        case .keyword(.True):
+            advance()
+            return .literal(.bool(true))
+        case .keyword(.False):
+            advance()
+            return .literal(.bool(false))
         default:
             throw ParserError.expectedPattern
         }

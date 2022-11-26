@@ -20,9 +20,11 @@ public indirect enum CoreExpr {
     case Assignment(CoreExpr, AssignmentOperator, CoreExpr, ty: Ty)
     case Tuple([CoreExpr], ty: Ty)
     case Array([CoreExpr], ty: Ty)
+    case ArraySubscript(CoreExpr, index: CoreExpr, ty: Ty)
     case Record([(String, CoreExpr)], ty: Ty)
     case RecordSelect(CoreExpr, field: String, ty: Ty)
     case Raw(js: String, ty: Ty)
+    case Match(CoreExpr, cases: [(CorePattern, CoreExpr)], ty: Ty)
     
     public var ty: Ty {
         switch self {
@@ -38,9 +40,11 @@ public indirect enum CoreExpr {
         case .Assignment(_, _, _, let ty): return ty
         case .Tuple(_, let ty): return ty
         case .Array(_, let ty): return ty
+        case .ArraySubscript(_, _, let ty): return ty
         case .Record(_, let ty): return ty
         case .RecordSelect(_, _, let ty): return ty
         case .Raw(_, let ty): return ty
+        case .Match(_, _, let ty): return ty
         }
     }
 }
@@ -94,6 +98,12 @@ extension Expr {
             return Expr.Call(f: .Var(f), args: args).core(lvl)
         case let .Raw(js):
             return .Raw(js: js, ty: ty())
+        case let .Match(expr, cases):
+            return .Match(
+                expr.core(lvl),
+                cases: cases.map({ (pat, body) in (pat.core(), body.core(lvl)) }),
+                ty: ty()
+            )
         }
     }
 }
@@ -139,13 +149,14 @@ extension Stmt {
     }
 }
 
-public enum CorePattern {
+public enum CorePattern: CustomStringConvertible {
     case any
     case variable(String)
+    case literal(Literal)
     indirect case tuple([CorePattern])
-    indirect case record([(String, CorePattern?)])
+    indirect case record([(field: String, pattern: CorePattern?)])
     
-    public func ty(level: UInt) -> (ty: Ty, vars: [String:Ty]) {
+    func ty(level: UInt) -> (ty: Ty, vars: [String:Ty]) {
         var vars = [String:Ty]()
         
         func go(_ pat: CorePattern) -> Ty {
@@ -160,6 +171,8 @@ public enum CorePattern {
                 let ty = Ty.fresh(level: level)
                 vars[name] = ty
                 return ty
+            case let .literal(lit):
+                return lit.ty
             case let .tuple(patterns):
                 return .tuple(patterns.map(go))
             case let .record(entries):
@@ -183,6 +196,31 @@ public enum CorePattern {
         
         return (go(self), vars)
     }
+    
+    func isInfallible() -> Bool {
+        switch self {
+        case .any, .variable(_): return true
+        case .literal(_): return false
+        case .tuple(let args): return args.allSatisfy({ $0.isInfallible() })
+        case .record(let entries):
+            return entries.allSatisfy({ $0.pattern?.isInfallible() ?? true })
+        }
+    }
+    
+    public var description: String {
+        switch self {
+        case .any:
+            return "_"
+        case let .variable(name):
+            return name
+        case let .literal(lit):
+            return "\(lit)"
+        case let .tuple(patterns):
+            return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", ")))"
+        case let .record(entries):
+            return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
+        }
+    }
 }
 
 extension Pattern {
@@ -192,6 +230,8 @@ extension Pattern {
             return .any
         case let .variable(name):
             return .variable(name)
+        case let .literal(lit):
+            return .literal(lit)
         case let .tuple(args):
             return .tuple(args.map({ p in p.core() }))
         case let .record(entries):

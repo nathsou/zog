@@ -16,6 +16,7 @@ public enum TypeError: Error, CustomStringConvertible {
     case cannotRedeclareVariable(String)
     case recordDoesNotContainField(Ty, String)
     case expectedRecordType(Ty)
+    case patternDestructuringCanFail(CorePattern)
 
     public var description: String {
         switch self {
@@ -42,6 +43,8 @@ public enum TypeError: Error, CustomStringConvertible {
             return "record type '\(record)' does not contain field '\(field)'"
         case let .expectedRecordType(ty):
             return "Expected record type, got '\(ty)'"
+        case let .patternDestructuringCanFail(pattern):
+            return "Cannot use '\(pattern)' as a destructuring pattern since it can fail"
         }
     }
 }
