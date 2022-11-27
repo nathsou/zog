@@ -76,7 +76,7 @@ final class inferenceTests: XCTestCase {
         XCTAssertEqual(try infer("(a, b) => a < b").canonical, "(num, num) => bool")
         XCTAssertEqual(
             try infer("((a, (b, c))) => { k: a == b and c }").canonical,
-            "(num, (num, bool)) => { k: bool }"
+            "((num, (num, bool))) => { k: bool }"
         )
     }
     
@@ -95,7 +95,7 @@ final class inferenceTests: XCTestCase {
             "let fst = ((a, _)) => a",
         ])
         
-        XCTAssertEqual(env2.vars["fst"]?.canonical, "('A, 'B) => 'A")
+        XCTAssertEqual(env2.vars["fst"]?.canonical, "(('A, 'B)) => 'A")
     }
     
     func testInferArrayTy() throws {

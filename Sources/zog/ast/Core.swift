@@ -25,6 +25,7 @@ public indirect enum CoreExpr {
     case RecordSelect(CoreExpr, field: String, ty: Ty)
     case Raw(js: String, ty: Ty)
     case Match(CoreExpr, cases: [(CorePattern, CoreExpr)], ty: Ty)
+    case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
     
     public var ty: Ty {
         switch self {
@@ -45,6 +46,7 @@ public indirect enum CoreExpr {
         case .RecordSelect(_, _, let ty): return ty
         case .Raw(_, let ty): return ty
         case .Match(_, _, let ty): return ty
+        case .Switch(_, _, _, let ty): return ty
         }
     }
 }

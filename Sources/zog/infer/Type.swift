@@ -165,10 +165,6 @@ public enum Row: Equatable {
         return entries
     }
     
-    func sortedEntries() ->[(key: String, ty: Ty)] {
-        return entries().sorted(by: { (a, b) in a.key < b.key })
-    }
-    
     func map(types f: (_ ty: Ty) -> Ty) -> Row {
         switch self {
         case .empty:
@@ -270,7 +266,11 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
             case let .const(name, args):
                 return "\(name)<\(args.map(go).joined(separator: ", "))>"
             case let .fun(args, ret) where args.count == 1:
-                return "\(go(args[0])) => \(go(ret))"
+                if case .const("Tuple", _) = args[0] {
+                    return "(\(go(args[0]))) => \(go(ret))"
+                } else {
+                    return "\(go(args[0])) => \(go(ret))"
+                }
             case let .fun(args, ret):
                 return "(\(args.map(go).joined(separator: ", "))) => \(go(ret))"
             case let .record(row):

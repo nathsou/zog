@@ -55,6 +55,7 @@ public indirect enum JSExpr: CustomStringConvertible {
             return "function* (\(argsFmt)) {\n\(bodyFmt)\n}"
         case let .call(lhs, args): return "\(lhs)(\(args.map({ "\($0)" }).joined(separator: ", ")))"
         case let .unaryOperation(op, expr): return "\(op)\(expr)"
+        case let .binaryOperation(lhs, op, rhs) where op == .equ: return "\(lhs) === \(rhs)"
         case let .binaryOperation(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
         case let .ternary(cond, thenExpr, elseExpr): return "\(cond) ? \(thenExpr) : \(elseExpr)"
         case let .assignment(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
@@ -82,11 +83,17 @@ public enum JSStmt: CustomStringConvertible {
     case return_(JSExpr?)
     case yield(JSExpr)
     case break_
+    case switch_(subject: JSExpr, cases: [(JSExpr, [JSStmt])], defaultCase: [JSStmt]?)
     
     public var description: String {
         switch self {
         case let .expr(expr): return "\(expr);"
-        case let .varDecl(mut, name, val): return "\(mut ? "let" : "const") \(name) = \(val);"
+        case let .varDecl(mut, name, val):
+            if case .undefined = val {
+                return "\(mut ? "let" : "const") \(name);"
+            } else {
+                return "\(mut ? "let" : "const") \(name) = \(val);"
+            }
         case let .ifThen(cond, body):
             return "if (\(cond)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
         case let .whileLoop(cond, body):
@@ -100,7 +107,17 @@ public enum JSStmt: CustomStringConvertible {
                 return "return;"
             }
         case let .yield(expr): return "yield \(expr);"
-        case .break_: return "break"
+        case .break_: return "break;"
+        case let .switch_(subject, cases, defaultCase):
+            let showBody = { (stmts: [JSStmt]) in "{\n\(stmts.map({ indent($0) }).joined(separator: "\n"))\n}" }
+            
+            var tests = cases.map({ (val, stmts) in "case \(val): \(showBody(stmts))"})
+            
+            if let defaultCase {
+                tests.append("default: \(showBody(defaultCase))")
+            }
+            
+            return "switch (\(subject)) {\n\(indent(tests.joined(separator: "\n")))\n}"
         }
     }
 }

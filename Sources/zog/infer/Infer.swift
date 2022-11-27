@@ -174,14 +174,35 @@ extension CoreExpr {
             let exprTy = try expr.infer(env, level)
             
             for (pat, body) in cases {
-                let (patTy, _) = pat.ty(level: level)
+                let (patTy, vars) = pat.ty(level: level)
+                let bodyEnv = env.child()
+                for (name, ty) in vars {
+                    try bodyEnv.declare(name, ty: ty)
+                }
+                
                 try unify(patTy, exprTy)
-                let bodyTy = try body.infer(env, level)
+                let bodyTy = try body.infer(bodyEnv, level)
                 try unify(bodyTy, ty)
             }
             
             if cases.isEmpty {
                 try unify(ty, .unit)
+            }
+            
+            tau = ty
+        case let .Switch(expr, cases, defaultCase, ty):
+            let exprTy = try expr.infer(env, level)
+            
+            for (val, body) in cases {
+                let valTy = try val.infer(env, level)
+                try unify(exprTy, valTy)
+                let bodyTy = try body.infer(env, level)
+                try unify(bodyTy, ty)
+            }
+            
+            if let defaultCase {
+                let bodyTy = try defaultCase.infer(env, level)
+                try unify(bodyTy, ty)
             }
             
             tau = ty

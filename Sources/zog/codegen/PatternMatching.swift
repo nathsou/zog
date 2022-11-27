@@ -10,9 +10,16 @@ import Foundation
 // Based on "Compiling Pattern Matching to Good Decision Trees" by Luc Maranget
 // http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf
 
-enum PathKey {
+enum PathKey: CustomStringConvertible {
     case index(Int)
     case field(String)
+    
+    var description: String {
+        switch self {
+        case .index(let index): return "\(index)"
+        case .field(let field): return "\(field)"
+        }
+    }
 }
 
 typealias Path = [PathKey]
@@ -34,7 +41,7 @@ extension CoreExpr {
             case let .field(field):
                 if case .record(let row) = expr.ty.deref() {
                     // TODO: optimize
-                    let entries = row.sortedEntries()
+                    let entries = row.entries()
                     if let index = entries.firstIndex(where: { (k, _) in k == field }) {
                         let (key, ty) = entries[index]
                         expr = .RecordSelect(expr, field: key, ty: ty)
@@ -65,39 +72,47 @@ enum Ctor: Hashable {
 
 fileprivate enum SimplifiedPattern {
     case any
+    case variable(String, Path)
     indirect case const(Ctor, [SimplifiedPattern])
     
-    func isAny() -> Bool {
-        if case .any = self {
+    func isInfallible() -> Bool {
+        switch self {
+        case .any, .variable(_, _):
             return true
+        default:
+            return false
         }
-        
-        return false
     }
 }
 
 extension CorePattern {
     fileprivate func simplified() -> SimplifiedPattern {
-        switch self {
-        case .any, .variable(_):
-            return .any
-        case .literal(let lit):
-            return .const(.literal(lit), [])
-        case .tuple(let args):
-            return .const(.tuple, args.map({ $0.simplified() }))
-        case .record(let entries):
-            var subPatterns = [SimplifiedPattern]()
-            
-            for (_, p) in entries {
-                if let p {
-                    subPatterns.append(p.simplified())
-                } else {
-                    subPatterns.append(.any)
+        func aux(_ pat: CorePattern, _ path: Path) -> SimplifiedPattern {
+            switch pat {
+            case .any:
+                return .any
+            case .variable(let name):
+                return .variable(name, path)
+            case .literal(let lit):
+                return .const(.literal(lit), [])
+            case .tuple(let args):
+                return .const(.tuple, args.enumerated().map({ (i, arg) in aux(arg, path + [.index(i)]) }))
+            case .record(let entries):
+                var subPatterns = [SimplifiedPattern]()
+                
+                for (field, p) in entries {
+                    if let p {
+                        subPatterns.append(aux(p, path + [.field(field)]))
+                    } else {
+                        subPatterns.append(.variable(field, path))
+                    }
                 }
+                
+                return .const(.record(entries.map({ (field, _) in field })), subPatterns)
             }
-            
-            return .const(.record(entries.map({ (k, _) in k })), subPatterns)
         }
+        
+        return aux(self, [])
     }
 }
 
@@ -127,7 +142,7 @@ extension Ty {
         case let .record(row):
             return SimplifiedTy(
                 ctor: "record",
-                args: row.sortedEntries().map({ (_, ty) in ty.simplified() })
+                args: row.entries().map({ (_, ty) in ty.simplified() })
             )
         }
     }
@@ -138,7 +153,7 @@ fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [Ctor:Int] {
     
     for p in patterns {
         switch p {
-        case .any:
+        case .any, .variable(_, _):
             break
         case let .const(ctor, args):
             heads[ctor] = args.count
@@ -149,6 +164,7 @@ fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [Ctor:Int] {
 }
 
 enum DecisionTree: CustomStringConvertible {
+    case fail
     case leaf(CoreExpr)
     indirect case switch_(
         occurrence: Path,
@@ -167,6 +183,7 @@ enum DecisionTree: CustomStringConvertible {
     
     var description: String {
         switch self {
+        case .fail: return "fail"
         case let .leaf(action): return "\(action)"
         case let .switch_(occurrence, cases, defaultCase):
             var casesFmt = cases.map({ (ctor, dt) in "\(ctor) => \(dt)" })
@@ -188,8 +205,8 @@ fileprivate struct ClauseMatrix {
     var patterns: [Row]
     let actions: [CoreExpr]
     
-    init(dims: (rows: Int, cols: Int), types: [SimplifiedTy], patterns: [Row], actions: [CoreExpr]) {
-        self.dims = dims
+    init(types: [SimplifiedTy], patterns: [Row], actions: [CoreExpr]) {
+        self.dims = (rows: patterns.count, cols: patterns.first?.count ?? 0)
         self.types = types
         self.patterns = patterns
         self.actions = actions
@@ -230,7 +247,6 @@ fileprivate struct ClauseMatrix {
         let types = args + self.types[1...]
         
         return ClauseMatrix.init(
-            dims: (rows: actions.count, cols: arity + self.dims.cols - 1),
             types: types,
             patterns: patterns.compactMap({ $0 }),
             actions: actions
@@ -242,7 +258,6 @@ fileprivate struct ClauseMatrix {
         let actions = zip(patterns, self.actions).filter({ (p, _) in p != nil }).map({ (_, a) in a })
         
         return ClauseMatrix.init(
-            dims: (rows: actions.count, cols: dims.cols - 1),
             types: Array(types[1...]),
             patterns: patterns.compactMap({ $0 }),
             actions: actions
@@ -255,7 +270,7 @@ fileprivate struct ClauseMatrix {
     
     private func selectColumn() -> Int {
         for j in 0..<dims.cols {
-            if getColumn(j).contains(where: { p in p.isAny() }) {
+            if getColumn(j).contains(where: { p in p.isInfallible() }) {
                 return j
             }
         }
@@ -274,10 +289,10 @@ fileprivate struct ClauseMatrix {
     mutating func compile() -> DecisionTree {
         func aux(matrix: inout ClauseMatrix, occurrences: inout [Path]) -> DecisionTree {
             if matrix.dims.rows == 0 {
-                fatalError("empty clause matrix")
+                return .fail
             }
             
-            if matrix.dims.cols == 0 || matrix.patterns[0].allSatisfy({ p in p.isAny() }) {
+            if matrix.dims.cols == 0 || matrix.patterns[0].allSatisfy({ p in p.isInfallible() }) {
                 return .leaf(matrix.actions[0])
             }
             
