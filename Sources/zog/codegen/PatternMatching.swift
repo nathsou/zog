@@ -70,14 +70,14 @@ enum Ctor: Hashable {
     }
 }
 
-fileprivate enum SimplifiedPattern {
+enum SimplifiedPattern {
     case any
-    case variable(String, Path)
+    case variable(String)
     indirect case const(Ctor, [SimplifiedPattern])
     
     func isInfallible() -> Bool {
         switch self {
-        case .any, .variable(_, _):
+        case .any, .variable(_):
             return true
         default:
             return false
@@ -87,24 +87,24 @@ fileprivate enum SimplifiedPattern {
 
 extension CorePattern {
     fileprivate func simplified() -> SimplifiedPattern {
-        func aux(_ pat: CorePattern, _ path: Path) -> SimplifiedPattern {
+        func aux(_ pat: CorePattern) -> SimplifiedPattern {
             switch pat {
             case .any:
                 return .any
             case .variable(let name):
-                return .variable(name, path)
+                return .variable(name)
             case .literal(let lit):
                 return .const(.literal(lit), [])
             case .tuple(let args):
-                return .const(.tuple, args.enumerated().map({ (i, arg) in aux(arg, path + [.index(i)]) }))
+                return .const(.tuple, args.enumerated().map({ (i, arg) in aux(arg) }))
             case .record(let entries):
                 var subPatterns = [SimplifiedPattern]()
                 
                 for (field, p) in entries {
                     if let p {
-                        subPatterns.append(aux(p, path + [.field(field)]))
+                        subPatterns.append(aux(p))
                     } else {
-                        subPatterns.append(.variable(field, path))
+                        subPatterns.append(.variable(field))
                     }
                 }
                 
@@ -112,7 +112,37 @@ extension CorePattern {
             }
         }
         
-        return aux(self, [])
+        return aux(self)
+    }
+
+    func vars() -> [String:Path] {
+        var vars = [String:Path]()
+        func aux(_ pat: CorePattern, _ path: Path) {
+            switch pat {
+            case .any:
+                break
+            case .variable(let name):
+                vars[name] = path
+            case .literal(_):
+                break
+            case .tuple(let args):
+                for (i, arg) in args.enumerated() {
+                    aux(arg, path + [.index(i)])
+                }
+            case .record(let entries):
+                for (field, p) in entries {
+                    if let p {
+                        aux(p, path + [.field(field)])
+                    } else {
+                        vars[field] = path
+                    }
+                }
+            }
+        }
+        
+        aux(self, [])
+
+        return vars
     }
 }
 
@@ -153,7 +183,7 @@ fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [Ctor:Int] {
     
     for p in patterns {
         switch p {
-        case .any, .variable(_, _):
+        case .any, .variable(_):
             break
         case let .const(ctor, args):
             heads[ctor] = args.count
@@ -165,7 +195,7 @@ fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [Ctor:Int] {
 
 enum DecisionTree: CustomStringConvertible {
     case fail
-    case leaf(CoreExpr)
+    case leaf(rowIndex: Int, action: CoreExpr)
     indirect case switch_(
         occurrence: Path,
         cases: [(ctor: Ctor, dt: DecisionTree)],
@@ -173,7 +203,7 @@ enum DecisionTree: CustomStringConvertible {
     )
     
     static func from(exprTy: Ty, cases: [(CorePattern, CoreExpr)]) -> DecisionTree {
-        var clauseMatrix = ClauseMatrix.init(
+        var clauseMatrix = ClauseMatrix.from(
             type: exprTy.simplified(),
             cases: cases.map({ (p, a) in (p.simplified(), a) })
         )
@@ -184,7 +214,7 @@ enum DecisionTree: CustomStringConvertible {
     var description: String {
         switch self {
         case .fail: return "fail"
-        case let .leaf(action): return "\(action)"
+        case let .leaf(_, action): return "\(action)"
         case let .switch_(occurrence, cases, defaultCase):
             var casesFmt = cases.map({ (ctor, dt) in "\(ctor) => \(dt)" })
             if let defaultCase {
@@ -203,27 +233,28 @@ fileprivate struct ClauseMatrix {
     let dims: (rows: Int, cols: Int)
     var types: [SimplifiedTy]
     var patterns: [Row]
-    let actions: [CoreExpr]
+    let actions: [(rowIndex: Int, action: CoreExpr)]
     
-    init(types: [SimplifiedTy], patterns: [Row], actions: [CoreExpr]) {
+    init(types: [SimplifiedTy], patterns: [Row], actions: [(rowIndex: Int, action: CoreExpr)]) {
         self.dims = (rows: patterns.count, cols: patterns.first?.count ?? 0)
         self.types = types
         self.patterns = patterns
         self.actions = actions
     }
     
-    init(type: SimplifiedTy, cases: [(SimplifiedPattern, CoreExpr)]) {
-        dims = (rows: cases.count, cols: 1)
-        types = [type]
-        patterns = cases.map({ (p, _) in [p] })
-        actions = cases.map({ (_, a) in a })
+    static func from(type: SimplifiedTy, cases: [(SimplifiedPattern, CoreExpr)]) -> Self {
+        return ClauseMatrix(
+            types: [type],
+            patterns: cases.map({ (p, _) in [p] }),
+            actions: cases.enumerated().map({ (index, arg1) in let (_, a) = arg1; return (index, a) })
+        )
     }
     
     private static func specializedRow(row: Row, ctor: Ctor, arity: Int) -> Row? {
         let (p, ps) = (row.first, row[1...])
         
         switch p {
-        case .any:
+        case .any, .variable(_):
             return [_](repeating: .any, count: arity) + ps
         case let .const(c, args) where c == ctor:
             return args + ps
@@ -233,17 +264,25 @@ fileprivate struct ClauseMatrix {
     }
     
     private static func defaultedRow(_ row: Row) -> Row? {
-        if case .any = row.first {
+        switch row.first {
+        case .any, .variable(_):
             return Array(row[1...])
+        default:
+            return nil
         }
-        
-        return nil
     }
     
     private func specialized(ctor: Ctor, args: [SimplifiedTy]) -> ClauseMatrix {
         let arity = args.count
-        let patterns = self.patterns.map({ row in ClauseMatrix.specializedRow(row: row, ctor: ctor, arity: arity) })
-        let actions = zip(patterns, self.actions).filter({ (p, _) in p != nil }).map({ (_, a) in a })
+        let patterns = self.patterns.map({ row in
+            ClauseMatrix.specializedRow(row: row, ctor: ctor, arity: arity)
+            
+        })
+        
+        let actions = zip(patterns, self.actions.map({ ($0.rowIndex, $0.action) }))
+            .filter({ (p, _) in p != nil })
+            .map({ (_, a) in a })
+        
         let types = args + self.types[1...]
         
         return ClauseMatrix.init(
@@ -255,7 +294,9 @@ fileprivate struct ClauseMatrix {
     
     private func defaulted() -> ClauseMatrix {
         let patterns = self.patterns.map(ClauseMatrix.defaultedRow)
-        let actions = zip(patterns, self.actions).filter({ (p, _) in p != nil }).map({ (_, a) in a })
+        let actions = zip(patterns, self.actions.map({ ($0.rowIndex, $0.action) }))
+            .filter({ (p, _) in p != nil })
+            .map({ (_, a) in a })
         
         return ClauseMatrix.init(
             types: Array(types[1...]),
@@ -293,7 +334,8 @@ fileprivate struct ClauseMatrix {
             }
             
             if matrix.dims.cols == 0 || matrix.patterns[0].allSatisfy({ p in p.isInfallible() }) {
-                return .leaf(matrix.actions[0])
+                let (index, action) = matrix.actions[0]
+                return .leaf(rowIndex: index, action: action)
             }
             
             let columnIndex = matrix.selectColumn()
@@ -306,7 +348,7 @@ fileprivate struct ClauseMatrix {
             let col = matrix.getColumn(0)
             let hds = heads(col)
             let isExhaustive = matrix.types[0].isExhaustive(Array(hds.keys))
-            var cases = [(Ctor, DecisionTree)]()
+            var cases = [(ctor: Ctor, dt: DecisionTree)]()
             
             for (ctor, arity) in hds {
                 var o1 = (0..<arity).map({ i in occurrences[0] + [ctor.at(i)] }) + occurrences[1...]
@@ -323,7 +365,11 @@ fileprivate struct ClauseMatrix {
                 defaultCase = aux(matrix: &D, occurrences: &occurrences)
             }
             
-            return .switch_(occurrence: occurrences[0], cases: cases, defaultCase: defaultCase)
+            return .switch_(
+                occurrence: occurrences[0],
+                cases: cases,
+                defaultCase: defaultCase
+            )
         }
         
         var occurrences = [Path]([[]])

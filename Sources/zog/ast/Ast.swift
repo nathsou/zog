@@ -183,7 +183,7 @@ public enum Stmt: CustomStringConvertible {
     case Let(mut: Bool, pat: Pattern, ty: Ty?, val: Expr)
     indirect case While(cond: Expr, body: [Stmt])
     indirect case For(pat: Pattern, iterator: Expr, body: [Stmt])
-    indirect case IfThen(cond: Expr, then: [Stmt])
+    indirect case If(cond: Expr, then: [Stmt], else_: [Stmt]?)
     case Return(Expr?)
     case Yield(Expr)
     case Break
@@ -203,7 +203,11 @@ public enum Stmt: CustomStringConvertible {
         case let .For(pat, iterator, body):
             return
                 "for \(pat) in \(iterator) {\n\(body.map(indent).joined(separator: "\n"))\n}"
-        case let .IfThen(cond, then):
+        case let .If(cond, then, else_) where else_ != nil:
+            let thenFmt = "{\n\(then.map(indent).joined(separator: "\n"))\n}"
+            let elseFmt = "{\n\(else_!.map(indent).joined(separator: "\n"))\n}"
+            return "if \(cond) \(thenFmt) else \(elseFmt)"
+        case let .If(cond, then, _):
             return "if \(cond) {\n\(then.map(indent).joined(separator: "\n"))\n}"
         case .Return(nil):
             return "return"

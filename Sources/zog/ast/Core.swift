@@ -24,7 +24,7 @@ public indirect enum CoreExpr {
     case Record([(String, CoreExpr)], ty: Ty)
     case RecordSelect(CoreExpr, field: String, ty: Ty)
     case Raw(js: String, ty: Ty)
-    case Match(CoreExpr, cases: [(CorePattern, CoreExpr)], ty: Ty)
+    case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
     
     public var ty: Ty {
@@ -115,7 +115,7 @@ public enum CoreStmt {
     case Let(mut: Bool, pat: CorePattern, ty: Ty?, val: CoreExpr)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
     indirect case For(pat: CorePattern, iterator: CoreExpr, body: [CoreStmt])
-    indirect case IfThen(cond: CoreExpr, then: [CoreStmt])
+    indirect case If(cond: CoreExpr, then: [CoreStmt], else_: [CoreStmt]?)
     case Return(CoreExpr?)
     case Yield(CoreExpr)
     case Break
@@ -136,8 +136,12 @@ extension Stmt {
                 iterator: iterator.core(lvl),
                 body: body.map({ $0.core(lvl) })
             )
-        case let .IfThen(cond, then):
-            return .IfThen(cond: cond.core(lvl), then: then.map({ $0.core(lvl) }))
+        case let .If(cond, then, else_):
+            return .If(
+                cond: cond.core(lvl),
+                then: then.map({ $0.core(lvl) }),
+                else_: else_?.map({ $0.core(lvl) })
+            )
         case let .Return(expr):
             return .Return(expr.map({ $0.core(lvl) }))
         case let .Yield(expr):

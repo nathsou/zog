@@ -125,15 +125,28 @@ extension CoreExpr {
         case let .Raw(js, _):
             return .raw(js)
         case let .Match(expr, cases, ty):
-            let dt = DecisionTree.from(exprTy: expr.ty, cases: cases)
+            let dt = DecisionTree.from(
+                exprTy: expr.ty,
+                cases: cases
+            )
             
             if case .Var(_, _) = expr {
-                return try dt.rewrite(subject: expr, returnTy: ty).codegen(ctx)
+                return try dt.rewrite(
+                    subject: expr,
+                    returnTy: ty,
+                    patterns: cases.map({ $0.pattern }),
+                    ctx: ctx
+                ).codegen(ctx)
             } else {
                 let subjectVarName = ctx.declare("subject")
                 return try CoreExpr.Block(
                     [.Let(mut: false, pat: .variable(subjectVarName), ty: expr.ty, val: expr)],
-                    ret: dt.rewrite(subject: .Var(subjectVarName, ty: expr.ty), returnTy: ty),
+                    ret: dt.rewrite(
+                        subject: .Var(subjectVarName, ty: expr.ty),
+                        returnTy: ty,
+                        patterns: cases.map({ $0.pattern }),
+                        ctx: ctx
+                    ),
                     ty: ty
                 ).codegen(ctx)
             }
@@ -170,10 +183,23 @@ extension CoreStmt {
             return try .expr(val.codegen(ctx))
         case let .Let(mut, pat, ty: _, val):
             return .varDecl(mut: mut, try pat.codegen(ctx), try val.codegen(ctx))
-        case let .IfThen(cond, body):
-            let bodyCtx = ctx.child()
-            try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
-            return .ifThen(cond: try cond.codegen(ctx), body: bodyCtx.statements)
+        case let .If(cond, then, else_):
+            let thenCtx = ctx.child()
+            try then.forEach({ stmt in thenCtx.statements.append(try stmt.codegen(thenCtx)) })
+            
+            var elseStmts: [JSStmt]? = nil
+            
+            if let else_ {
+                let elseCtx = ctx.child()
+                try else_.forEach({ stmt in elseCtx.statements.append(try stmt.codegen(elseCtx)) })
+                elseStmts = elseCtx.statements
+            }
+            
+            return .if_(
+                cond: try cond.codegen(ctx),
+                then: thenCtx.statements,
+                else_: elseStmts
+            )
         case let .While(cond, body):
             let bodyCtx = ctx.child()
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
@@ -245,35 +271,50 @@ func caseCondition(subject: CoreExpr, ctor: Ctor) -> CoreExpr? {
 }
 
 extension DecisionTree {
-    func rewrite(subject: CoreExpr, returnTy: Ty) -> CoreExpr {
+    func rewrite(subject: CoreExpr, returnTy: Ty, patterns: [CorePattern], ctx: CoreContext) -> CoreExpr {
         func aux(_ dt: DecisionTree, subject: CoreExpr) -> CoreExpr {
             switch dt {
             case .fail:
                 return .Raw(js: "(() => { throw new Error('Pattern matching failed'); })()", ty: .unit)
-            case let .leaf(action):
-                return action
+            case let .leaf(rowIndex, action):
+                let vars = patterns[rowIndex].vars()
+                return .Block(
+                    vars.map({ (name, path) in
+                        .Let(
+                            mut: false,
+                            pat: .variable(ctx.declare(name)),
+                            ty: nil,
+                            val: subject.at(path: path)
+                        )
+                    }),
+                    ret: action,
+                    ty: returnTy
+                )
             case let .switch_(path, cases, defaultCase):
                 let proj = subject.at(path: path)
                 var tests = [(CoreExpr, CoreExpr)]()
                 
                 for (ctor, dt) in cases {
                     if case .literal(let lit) = ctor {
-                        tests.append((.Literal(lit, ty: lit.ty), dt.rewrite(subject: subject, returnTy: returnTy)))
+                        tests.append((
+                            .Literal(lit, ty: lit.ty),
+                            aux(dt, subject: subject)
+                        ))
                     }
                 }
                 
                 if tests.isEmpty {
                     if !cases.isEmpty {
-                        return cases[0].dt.rewrite(subject: subject, returnTy: returnTy)
+                        return aux(cases[0].dt, subject: subject)
                     } else if defaultCase != nil {
-                        return defaultCase!.rewrite(subject: subject, returnTy: returnTy)
+                        return aux(defaultCase!, subject: subject)
                     }
                 }
                 
                 return .Switch(
                     proj,
                     cases: tests,
-                    defaultCase: defaultCase?.rewrite(subject: subject, returnTy: returnTy),
+                    defaultCase: defaultCase != nil ? aux(defaultCase!, subject: subject) : nil,
                     ty: returnTy
                 )
             }

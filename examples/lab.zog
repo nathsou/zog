@@ -1,10 +1,8 @@
-
 let print: 'T => () = raw { console.log }
 
-let matched = match (3, "bolo", (false, { b: 1, a: 2 })) {
-    (_, "yolo", (_, { a: 2 })) => 1
-    (_, "bolo", (true, { b: 1 })) => 2
-    _ => 3
+let matched = match (1, (2, 3)) {
+    (a, (2, c)) => a
+    _ => 0
 }
 
 print(matched)

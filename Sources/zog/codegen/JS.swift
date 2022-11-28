@@ -79,7 +79,7 @@ public enum JSStmt: CustomStringConvertible {
     case varDecl(mut: Bool, JSExpr, JSExpr)
     case whileLoop(cond: JSExpr, body: [JSStmt])
     case forOfLoop(pat: JSExpr, in: JSExpr, body: [JSStmt])
-    case ifThen(cond: JSExpr, body: [JSStmt])
+    case if_(cond: JSExpr, then: [JSStmt], else_: [JSStmt]?)
     case return_(JSExpr?)
     case yield(JSExpr)
     case break_
@@ -94,8 +94,12 @@ public enum JSStmt: CustomStringConvertible {
             } else {
                 return "\(mut ? "let" : "const") \(name) = \(val);"
             }
-        case let .ifThen(cond, body):
-            return "if (\(cond)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
+        case let .if_(cond, then, else_) where else_ != nil:
+            let thenFmt = "{\n\(then.map(indent).joined(separator: "\n"))\n}"
+            let elseFmt = "{\n\(else_!.map(indent).joined(separator: "\n"))\n}"
+            return "if (\(cond)) \(thenFmt) else \(elseFmt)"
+        case let .if_(cond, then, _):
+            return "if (\(cond)) \("{\n\(then.map(indent).joined(separator: "\n"))\n}")"
         case let .whileLoop(cond, body):
             return "while (\(cond)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
         case let .forOfLoop(ident, of, body):

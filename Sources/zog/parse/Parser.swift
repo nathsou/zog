@@ -297,10 +297,16 @@ public class Parser {
     // ifStmt -> 'if' expr '{' stmt* '}'
     func ifStmt() throws -> Stmt {
         let cond = try expression()
-        let body = try statementListBlock()
+        let then = try statementListBlock()
+        var else_: [Stmt]? = nil
+        
+        if match(.keyword(.Else)) {
+            else_ = try statementListBlock()
+        }
+        
         try consume(.symbol(.semicolon))
 
-        return .IfThen(cond: cond, then: body)
+        return .If(cond: cond, then: then, else_: else_)
     }
 
     // stmtListBlock -> '{' stmt* '}'

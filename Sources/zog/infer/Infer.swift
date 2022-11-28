@@ -259,13 +259,29 @@ extension CoreStmt {
             for stmt in body {
                 try stmt.infer(bodyEnv, level)
             }
-        case let .While(cond, body), let .IfThen(cond, body):
+        case let .While(cond, body):
             let condTy = try cond.infer(env, level)
             try unify(condTy, .bool)
             let bodyEnv = env.child()
             
             for stmt in body {
                 try stmt.infer(bodyEnv, level)
+            }
+        case let .If(cond, then, else_):
+            let condTy = try cond.infer(env, level)
+            try unify(condTy, .bool)
+            let thenEnv = env.child()
+            
+            for stmt in then {
+                try stmt.infer(thenEnv, level)
+            }
+            
+            if let else_ {
+                let elseEnv = env.child()
+                
+                for stmt in else_ {
+                    try stmt.infer(elseEnv, level)
+                }
             }
         case let .Return(expr):
             let exprTy = try expr?.infer(env, level) ?? .unit

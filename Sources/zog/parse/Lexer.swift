@@ -47,6 +47,7 @@ public struct Lexer {
         case .num(_): return true
         case .bool(_): return true
         case .identifier(_): return true
+        case .str(_): return true
         case .symbol(.rparen): return true
         case .symbol(.rbracket): return true
         case .symbol(.rcurlybracket): return true
