@@ -1,8 +1,11 @@
 let print: 'T => () = raw { console.log }
 
-let matched = match (1, (2, 3)) {
-    (a, (2, c)) => a
+let m = match ("hoy", { a: 3, b: 1 }) {
+    ("yop", { a: 1 }) => 1
+    ("hey", { a: 2 }) => 2
+    ("hoy", { b: 1, a: 3 }) => 3
+    ("hii", { b: 4 }) => 4
     _ => 0
 }
 
-print(matched)
+print(m)

@@ -294,7 +294,7 @@ extension DecisionTree {
                 let proj = subject.at(path: path)
                 var tests = [(CoreExpr, CoreExpr)]()
                 
-                for (ctor, dt) in cases {
+                for (ctor, _, dt) in cases {
                     if case .literal(let lit) = ctor {
                         tests.append((
                             .Literal(lit, ty: lit.ty),
