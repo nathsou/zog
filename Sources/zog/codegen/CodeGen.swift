@@ -7,7 +7,7 @@
 
 import Foundation
 
-public class CoreContext {
+class CoreContext {
     let parent: CoreContext?
     var statements = [JSStmt]()
     var linearVarCounts = [String:Int]()
@@ -17,17 +17,17 @@ public class CoreContext {
         self.parent = parent
     }
     
-    public func child() -> CoreContext {
+    func child() -> CoreContext {
         return .init(parent: self)
     }
     
-    public func declare(_ name: String) -> String {
+    func declare(_ name: String) -> String {
         let newName = declareLinear(name)
         scopeVariables[name] = newName
         return newName
     }
     
-    public func lookup(_ name: String) throws -> String {
+    func lookup(_ name: String) throws -> String {
         if let newName = scopeVariables[name] {
             return newName
         }
@@ -70,7 +70,7 @@ extension Literal {
 }
 
 extension CoreExpr {
-    public func codegen(_ ctx: CoreContext) throws -> JSExpr {
+    func codegen(_ ctx: CoreContext) throws -> JSExpr {
         switch self {
         case let .Literal(lit, _): return lit.codegen()
         case let .UnaryOp(op, expr, _): return .unaryOperation(op, try expr.codegen(ctx))
@@ -188,7 +188,7 @@ extension CoreExpr {
 }
 
 extension CoreStmt {
-    public func codegen(_ ctx: CoreContext) throws -> JSStmt {
+    func codegen(_ ctx: CoreContext) throws -> JSStmt {
         switch self {
         case let .Expr(expr):
             return .expr(try expr.codegen(ctx))
@@ -236,8 +236,19 @@ extension CoreStmt {
     }
 }
 
+extension CoreDecl {
+    func codegen(_ ctx: CoreContext) throws -> [JSStmt] {
+        switch self {
+        case let .Stmt(stmt):
+            return [try stmt.codegen(ctx)]
+        case .TypeAlias(_, _):
+            return []
+        }
+    }
+}
+
 extension CorePattern {
-    public func codegen(_ ctx: CoreContext) throws -> JSExpr {
+    func codegen(_ ctx: CoreContext) throws -> JSExpr {
         switch self {
         case .any:
             return .variable(ctx.declare("_"))
@@ -271,15 +282,6 @@ extension CorePattern {
             
             return .objectPattern(objectEntries)
         }
-    }
-}
-
-func caseCondition(subject: CoreExpr, ctor: Ctor) -> CoreExpr? {
-    switch ctor {
-    case .literal(let lit):
-        return .BinaryOp(subject, .equ, .Literal(lit, ty: lit.ty), ty: .bool)
-    default:
-        return nil
     }
 }
 

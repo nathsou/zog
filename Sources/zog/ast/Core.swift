@@ -7,7 +7,7 @@
 
 import Foundation
 
-public indirect enum CoreExpr {
+indirect enum CoreExpr {
     case Literal(Literal, ty: Ty)
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
@@ -110,7 +110,7 @@ extension Expr {
     }
 }
 
-public enum CoreStmt {
+enum CoreStmt {
     case Expr(CoreExpr)
     case Let(mut: Bool, pat: CorePattern, ty: Ty?, val: CoreExpr)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
@@ -122,7 +122,7 @@ public enum CoreStmt {
 }
 
 extension Stmt {
-    public func core(_ lvl: UInt) -> CoreStmt {
+    func core(_ lvl: UInt) -> CoreStmt {
         switch self {
         case let .Expr(expr):
             return .Expr(expr.core(lvl))
@@ -155,7 +155,23 @@ extension Stmt {
     }
 }
 
-public enum CorePattern: CustomStringConvertible {
+enum CoreDecl {
+    case Stmt(CoreStmt)
+    case TypeAlias(String, Ty)
+}
+
+extension Decl {
+    func core(_ lvl: UInt) -> CoreDecl {
+        switch self {
+        case let .Stmt(stmt):
+            return .Stmt(stmt.core(lvl))
+        case let .TypeAlias(name, ty):
+            return .TypeAlias(name, ty)
+        }
+    }
+}
+
+enum CorePattern: CustomStringConvertible {
     case any
     case variable(String)
     case literal(Literal)

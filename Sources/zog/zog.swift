@@ -8,31 +8,31 @@ public struct zog {
                 var lexer = Lexer.init(source: source)
                 let tokens = lexer.lex()
                 let parser = Parser.init(tokens: tokens)
-                let prog = parser.program()
+                let prog = try parser.program()
                 
                 for (error, start, end) in parser.errors {
                     print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")
                 }
                 
                 if parser.errors.isEmpty {
-                    let core = prog.map({ stmt in stmt.core(0) })
+                    let core = prog.map({ decl in decl.core(0) })
                     let env = TypeEnv()
                     
                     func comment(_ text: CustomStringConvertible) -> String {
                         return String(describing: env).split(separator: "\n").map({ "// \($0)" }).joined(separator: "\n")
                     }
                     
-                    try core.forEach({ stmt in try stmt.infer(env, 0) })
+                    try core.forEach({ decl in try decl.infer(env, 0) })
                     print(comment(env), "\n")
                     
                     let context = CoreContext()
                     
-                    for stmt in core {
-                        context.statements.append(try stmt.codegen(context))
+                    for decl in core {
+                        context.statements.append(contentsOf: try decl.codegen(context))
                     }
                     
-                    for stmt in context.statements {
-                        print(stmt)
+                    for decl in context.statements {
+                        print(decl)
                     }
                 }
             } catch let error as ParserError {

@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum Literal: CustomStringConvertible, Hashable {
+enum Literal: CustomStringConvertible, Hashable {
     case unit
     case bool(Bool)
     case num(Float64)
@@ -23,7 +23,7 @@ public enum Literal: CustomStringConvertible, Hashable {
         }
     }
     
-    public var ty: Ty {
+    var ty: Ty {
         switch self {
         case .unit: return .unit
         case .bool(_): return .bool
@@ -33,7 +33,7 @@ public enum Literal: CustomStringConvertible, Hashable {
     }
 }
 
-public enum UnaryOperator: CustomStringConvertible {
+enum UnaryOperator: CustomStringConvertible {
     case logicalNegation, arithmeticNegation
 
     public var description: String {
@@ -44,7 +44,7 @@ public enum UnaryOperator: CustomStringConvertible {
     }
 }
 
-public enum BinaryOperator: CustomStringConvertible {
+enum BinaryOperator: CustomStringConvertible {
     case add, sub, mul, div, mod, pow, equ, neq, lss, leq, gtr, geq, and, or
 
     public var description: String {
@@ -67,7 +67,7 @@ public enum BinaryOperator: CustomStringConvertible {
     }
 }
 
-public enum AssignmentOperator: CustomStringConvertible {
+enum AssignmentOperator: CustomStringConvertible {
     case eq, plusEq, minusEq, timesEq, divideEq
 
     public var description: String {
@@ -81,7 +81,7 @@ public enum AssignmentOperator: CustomStringConvertible {
     }
 }
 
-public func indent(_ str: CustomStringConvertible) -> String {
+func indent(_ str: CustomStringConvertible) -> String {
     return String(describing: str)
         .split(separator: "\n")
         .map({ s in "    \(s)" })
@@ -96,7 +96,7 @@ func ann(_ annotation: Ty?) -> String {
     return ""
 }
 
-public indirect enum Expr: CustomStringConvertible {
+indirect enum Expr: CustomStringConvertible {
     case Literal(Literal)
     case UnaryOp(UnaryOperator, Expr)
     case BinaryOp(Expr, BinaryOperator, Expr)
@@ -178,7 +178,7 @@ public indirect enum Expr: CustomStringConvertible {
     }
 }
 
-public enum Stmt: CustomStringConvertible {
+enum Stmt: CustomStringConvertible {
     case Expr(Expr)
     case Let(mut: Bool, pat: Pattern, ty: Ty?, val: Expr)
     indirect case While(cond: Expr, body: [Stmt])
@@ -223,7 +223,21 @@ public enum Stmt: CustomStringConvertible {
     }
 }
 
-public enum Pattern: CustomStringConvertible {
+enum Decl: CustomStringConvertible {
+    case Stmt(Stmt)
+    case TypeAlias(String, Ty)
+    
+    var description: String {
+        switch self {
+        case let .Stmt(stmt):
+            return "\(stmt)"
+        case let .TypeAlias(name, ty):
+            return "type \(name) = \(ty)"
+        }
+    }
+}
+
+enum Pattern: CustomStringConvertible {
     case any
     case variable(String)
     case literal(Literal)

@@ -16,7 +16,7 @@ extension CorePattern {
 }
 
 extension CoreExpr {
-    public func infer(_ env: TypeEnv, _ level: UInt) throws -> Ty {
+    func infer(_ env: TypeEnv, _ level: UInt) throws -> Ty {
         let tau: Ty
         
         switch self {
@@ -216,7 +216,7 @@ extension CoreExpr {
 }
 
 extension CoreStmt {
-    public func infer(_ env: TypeEnv, _ level: UInt) throws {
+    func infer(_ env: TypeEnv, _ level: UInt) throws {
         switch self {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
@@ -301,6 +301,17 @@ extension CoreStmt {
                     try unify(funcInfo.returnTy, .iterator(expr.ty))
                 }
             }
+        }
+    }
+}
+
+extension CoreDecl {
+    func infer(_ env: TypeEnv, _ level: UInt) throws {
+        switch self {
+        case let .Stmt(stmt):
+            try stmt.infer(env, level)
+        case .TypeAlias(_, _):
+            break
         }
     }
 }

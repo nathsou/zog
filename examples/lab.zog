@@ -1,5 +1,17 @@
 let print: 'T => () = raw { console.log }
 
+// type BinOp = enum { Add, Sub, Mul, Div }
+
+// type Expr = enum {
+//     Num num
+//     Var str
+//     Let { name: str, val: Expr, rhs: Expr }
+//     Fun { args: Expr[], body: Expr }
+//     Bin { lhs: Expr, op: BinOp, rhs: Expr }
+// }
+
+type Pair = ('A, 'B)
+
 let m = match ("hoy", { a: 3, b: 1 }) {
     ("yop", { a: 1 }) => 1
     ("hey", { a: 2 }) => 2

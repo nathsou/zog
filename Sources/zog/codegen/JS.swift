@@ -7,7 +7,7 @@
 
 import Foundation
 
-public indirect enum JSExpr: CustomStringConvertible {
+indirect enum JSExpr: CustomStringConvertible {
     case boolean(Bool)
     case number(Float64)
     case undefined
@@ -74,7 +74,7 @@ public indirect enum JSExpr: CustomStringConvertible {
     }
 }
 
-public enum JSStmt: CustomStringConvertible {
+enum JSStmt: CustomStringConvertible {
     case expr(JSExpr)
     case varDecl(mut: Bool, JSExpr, JSExpr)
     case whileLoop(cond: JSExpr, body: [JSStmt])

@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum TypeError: Error, CustomStringConvertible {
+enum TypeError: Error, CustomStringConvertible {
     case cannotUnify((Ty, Ty), failedWith: (Ty, Ty)?)
     case recursiveType(Ty, Ty)
     case unknownVariable(String)

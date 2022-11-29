@@ -15,6 +15,7 @@ public enum ParserError: Error, CustomStringConvertible, Equatable {
     case expectedUppercaseIdentifier
     case expectedType
     case expectedPattern
+    case expectedDeclaration
     case invalidAssignmentTarget
     case expected(Token)
 
@@ -38,6 +39,8 @@ public enum ParserError: Error, CustomStringConvertible, Equatable {
             return "Expected a statement"
         case .expectedPattern:
             return "Expected a pattern"
+        case .expectedDeclaration:
+            return "Expected a declaration"
         }
     }
 }

@@ -24,7 +24,7 @@ final class inferenceTests: XCTestCase {
         var lexer = Lexer.init(source: source.joined(separator: "\n") + "\n")
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
-        let prog = parser.program()
+        let prog = try parser.program()
         let core = prog.map({ stmt in stmt.core(0) })
         let env = TypeEnv()
         

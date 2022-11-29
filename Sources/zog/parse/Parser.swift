@@ -185,15 +185,39 @@ public class Parser {
         }
     }
 
-    // prog -> stmt*
-    func program() -> [Stmt] {
-        var stmts = [Stmt]()
+    // prog -> decl*
+    func program() throws -> [Decl] {
+        var decls = [Decl]()
 
         while let _ = peek() {
-            stmts.append(statement())
+            decls.append(try declaration())
         }
 
-        return stmts
+        return decls
+    }
+    
+    // ------ declaration ------
+    
+    func declaration() throws -> Decl {
+        switch peek() {
+        case .identifier("type") where peek(2) == .symbol(.eq):
+            advance()
+            return try typeAlias()
+        default:
+            return .Stmt(statement())
+        }
+    }
+    
+        // typeAlias -> 'type' identifier '=' ty
+    func typeAlias() throws -> Decl {
+        let name = try identifier()
+        try consume(.symbol(.eq))
+        pushTyParamScope()
+        let ty = try type()
+        popTyParamScope()
+        try consume(.symbol(.semicolon))
+        
+        return .TypeAlias(name, ty)
     }
     
     // ------ statements ------
