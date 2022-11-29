@@ -174,7 +174,7 @@ extension Ty {
     }
 }
 
-fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [Ctor:(arity: Int, rowIndex: Int)] {
+fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [(Ctor, (arity: Int, rowIndex: Int))] {
     var heads = [Ctor:(arity: Int, rowIndex: Int)]()
     
     for (index, pattern) in patterns.enumerated() {
@@ -186,7 +186,7 @@ fileprivate func heads(_ patterns: [SimplifiedPattern]) -> [Ctor:(arity: Int, ro
         }
     }
     
-    return heads
+    return heads.sorted(by: { $0.value.rowIndex < $1.value.rowIndex })
 }
 
 enum DecisionTree: CustomStringConvertible {
@@ -242,7 +242,7 @@ fileprivate struct ClauseMatrix {
         return ClauseMatrix(
             types: [type],
             patterns: cases.map({ (p, _) in [p] }),
-            actions: cases.enumerated().map({ (index, arg1) in let (_, a) = arg1; return (index, a) })
+            actions: cases.enumerated().map({ ($0, $1.1) })
         )
     }
     
@@ -272,7 +272,6 @@ fileprivate struct ClauseMatrix {
         let arity = args.count
         let patterns = self.patterns.map({ row in
             ClauseMatrix.specializedRow(row: row, ctor: ctor, arity: arity)
-            
         })
         
         let actions = zip(patterns, self.actions.map({ ($0.rowIndex, $0.action) }))
@@ -343,10 +342,10 @@ fileprivate struct ClauseMatrix {
             
             let col = matrix.getColumn(0)
             let hds = heads(col)
-            let isExhaustive = matrix.types[0].isExhaustive(Array(hds.keys))
+            let isExhaustive = matrix.types[0].isExhaustive(hds.map({ $0.0 }))
             var cases = [(ctor: Ctor, rowIndex: Int, dt: DecisionTree)]()
             
-            for (ctor, (arity: arity, rowIndex: rowIndex)) in hds {
+            for (ctor, (arity: arity, rowIndex: rowIndex)) in hds {                
                 var o1 = (0..<arity).map({ i in occurrences[0] + [i] }) + occurrences[1...]
                 var S = matrix.specialized(ctor: ctor, args: matrix.types[0].args)
                 let Ak = aux(matrix: &S, occurrences: &o1)
