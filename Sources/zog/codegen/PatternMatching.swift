@@ -25,8 +25,7 @@ extension CoreExpr {
                     ty: tys[index]
                 )
             case let .record(row):
-                // TODO: optimize
-                let (key, ty) = row.sortedEntries()[index]
+                let (key, ty) = row.entries()[index]
                 expr = .RecordSelect(expr, field: key, ty: ty)
             default:
                 return expr
@@ -85,10 +84,9 @@ extension CorePattern {
                         presentEntries[field] = pat
                     }
 
-                    let sortedEntries = row.sortedEntries()
                     var subPatterns = [SimplifiedPattern]()
                 
-                    for (field, fieldTy) in sortedEntries {
+                    for (field, fieldTy) in row.entries() {
                         if let pat = presentEntries[field] {
                             if let pat {
                                 subPatterns.append(aux(pat, fieldTy))

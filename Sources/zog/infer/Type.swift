@@ -133,14 +133,13 @@ public enum Row: Equatable {
     case empty
     case extend(field: String, ty: Ty, tail: Ty)
     
-    public static func from(entries: [(String, Ty)], tail: Ty = .record(.empty)) -> Row {
+    public static func from(entries: [(field: String, Ty)], tail: Ty = .record(.empty)) -> Row {
         var row = Row.empty
         
-        for (index, (field, ty)) in entries.reversed().enumerated() {
+        for (index, (field, ty)) in entries.sorted(by: { $0.field < $1.field  }).enumerated() {
             let rest = index == 0 ? tail : .record(row)
             row = .extend(field: field, ty: ty, tail: rest)
         }
-        
         
         return row
     }
@@ -162,11 +161,7 @@ public enum Row: Equatable {
         
         go(self)
         
-        return entries
-    }
-
-    func sortedEntries() -> [(key: String, ty: Ty)] {
-        return entries().sorted(by: { $0.key < $1.key })
+        return entries.sorted(by: { $0.key < $1.key })
     }
     
     func map(types f: (_ ty: Ty) -> Ty) -> Row {
