@@ -12,17 +12,17 @@ public typealias TyVarId = UInt
 class TyContext {
     static var nextTyVarId: TyVarId = 0
 
-    public static func freshTyVarId() -> TyVarId {
+    static func freshTyVarId() -> TyVarId {
         let id = nextTyVarId
         nextTyVarId += 1
         return id
     }
 }
 
-public class TypeEnv: CustomStringConvertible {
+class TypeEnv: CustomStringConvertible {
     let parent: TypeEnv?
     var vars = [String:Ty]()
-    public typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
+    typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
     static var functionInfoStack = [FunctionInfo]()
     
     init() {
@@ -33,7 +33,7 @@ public class TypeEnv: CustomStringConvertible {
         self.parent = parent
     }
     
-    public func lookup(_ name: String) -> Ty? {
+    func lookup(_ name: String) -> Ty? {
         if let ty = vars[name] {
             return ty
         }
@@ -41,11 +41,11 @@ public class TypeEnv: CustomStringConvertible {
         return parent?.lookup(name)
     }
     
-    public func contains(_ name: String) -> Bool {
+    func contains(_ name: String) -> Bool {
         return lookup(name) != nil
     }
     
-    public func declare(_ name: String, ty: Ty) throws {
+    func declare(_ name: String, ty: Ty) throws {
         guard vars[name] == nil else {
             throw TypeError.cannotRedeclareVariable(name)
         }
@@ -53,19 +53,19 @@ public class TypeEnv: CustomStringConvertible {
         vars[name] = ty
     }
     
-    public func child() -> TypeEnv {
+    func child() -> TypeEnv {
         return .init(parent: self)
     }
     
-    public static func pushFunctionInfo(retTy: Ty, isIterator: Bool) {
+    static func pushFunctionInfo(retTy: Ty, isIterator: Bool) {
         TypeEnv.functionInfoStack.append((retTy, isIterator))
     }
     
-    public static func popFunctionInfo() {
+    static func popFunctionInfo() {
         _ = TypeEnv.functionInfoStack.popLast()
     }
     
-    public static func peekFunctionInfo() -> FunctionInfo? {
+    static func peekFunctionInfo() -> FunctionInfo? {
         return TypeEnv.functionInfoStack.last
     }
     
@@ -75,12 +75,12 @@ public class TypeEnv: CustomStringConvertible {
     }
 }
 
-public enum TyVar: Equatable, CustomStringConvertible {
+enum TyVar: Equatable, CustomStringConvertible {
     case unbound(id: TyVarId, level: UInt)
     case link(Ty)
     case generic(TyVarId)
 
-    public static func showTyVarId(_ id: TyVarId) -> String {
+    static func showTyVarId(_ id: TyVarId) -> String {
         let char = UnicodeScalar(65 + Int(id % 26))!
 
         if id > 26 {
@@ -101,7 +101,7 @@ public enum TyVar: Equatable, CustomStringConvertible {
         }
     }
 
-    public static func fresh(level: UInt) -> TyVar {
+    static func fresh(level: UInt) -> TyVar {
         return .unbound(id: TyContext.freshTyVarId(), level: level)
     }
     
@@ -117,7 +117,7 @@ public enum TyVar: Equatable, CustomStringConvertible {
     }
 }
 
-public class Ref<T: Equatable>: Equatable {
+class Ref<T: Equatable>: Equatable {
     var ref: T
 
     init(_ ref: T) {
@@ -129,7 +129,7 @@ public class Ref<T: Equatable>: Equatable {
     }
 }
 
-public enum Row: Equatable {
+enum Row: Equatable {
     case empty
     case extend(field: String, ty: Ty, tail: Ty)
     
@@ -178,11 +178,12 @@ public enum Row: Equatable {
     }
 }
 
-public indirect enum Ty: Equatable, CustomStringConvertible {
+indirect enum Ty: Equatable, CustomStringConvertible {
     case variable(Ref<TyVar>)
     case const(String, [Ty])
     case fun([Ty], Ty)
     case record(Row)
+    case enum_([(name: String, ty: Ty?)])
 
     static var num: Ty {
         return .const("num", [])
@@ -281,6 +282,16 @@ public indirect enum Ty: Equatable, CustomStringConvertible {
                     
                     return "{ \(fields) }"
                 }
+            case let .enum_(variants):
+                let variantsFmt = variants.map({ (name, ty) in
+                    if let ty {
+                        return "\(name) \(ty)"
+                    } else {
+                        return name
+                    }
+                })
+                
+                return "enum {\n\(indent(variantsFmt.joined(separator: "\n")))\n}"
             }
         }
         
@@ -334,6 +345,12 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
             for (_, ty) in row.entries() {
                 try go(ty)
             }
+        case let .enum_(variants):
+            for (_, ty) in variants {
+                if let ty {
+                    try go(ty)
+                }
+            }
         }
     }
     
@@ -341,7 +358,7 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
 }
 
 // see https://github.com/tomprimozic/type-systems
-public func unify(_ s: Ty, _ t: Ty) throws {
+func unify(_ s: Ty, _ t: Ty) throws {
     let startingEq = (s, t)
     var eqs = [(s, t)]
     
@@ -431,7 +448,7 @@ func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
 }
 
 extension Ty {
-    public func generalize(level: UInt) -> Ty {
+    func generalize(level: UInt) -> Ty {
         switch self {
         case let .variable(v):
             switch v.ref {
@@ -448,10 +465,12 @@ extension Ty {
             return .fun(args.map({ $0.generalize(level: level) }), ret.generalize(level: level))
         case let .record(row):
             return .record(row.map(types: { ty in ty.generalize(level: level) }))
+        case let .enum_(variants):
+            return .enum_(variants.map({ (name, ty) in (name, ty?.generalize(level: level)) }))
         }
     }
     
-    public func instantiate(level: UInt) -> Ty {
+    func instantiate(level: UInt) -> Ty {
         var idVarMap = [TyVarId:Ty]()
         
         func go(_ ty: Ty) -> Ty {
@@ -477,6 +496,8 @@ extension Ty {
                 return .fun(args.map(go), go(ret))
             case let .record(row):
                 return .record(row.map(types: go))
+            case let .enum_(variants):
+                return .enum_(variants.map({ (name, ty) in (name, ty.map(go)) }))
             }
         }
         

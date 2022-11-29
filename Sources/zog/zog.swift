@@ -14,6 +14,10 @@ public struct zog {
                     print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")
                 }
                 
+                for decl in prog {
+                    print(decl)
+                }
+                
                 if parser.errors.isEmpty {
                     let core = prog.map({ decl in decl.core(0) })
                     let env = TypeEnv()

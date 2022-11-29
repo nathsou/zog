@@ -17,7 +17,7 @@ extension Character {
     }
 }
 
-public struct Lexer {
+struct Lexer {
     var index: Int
     var startIndex: Int
     let chars: [Character]
@@ -236,7 +236,7 @@ public struct Lexer {
         return nil
     }
 
-    public mutating func lex() -> [TokenWithPos] {
+    mutating func lex() -> [TokenWithPos] {
         while let token = next() {
             push(token)
         }

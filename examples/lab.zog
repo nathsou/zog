@@ -1,14 +1,14 @@
 let print: 'T => () = raw { console.log }
 
-// type BinOp = enum { Add, Sub, Mul, Div }
+type BinOp = enum { add, sub, mul, div }
 
-// type Expr = enum {
-//     Num num
-//     Var str
-//     Let { name: str, val: Expr, rhs: Expr }
-//     Fun { args: Expr[], body: Expr }
-//     Bin { lhs: Expr, op: BinOp, rhs: Expr }
-// }
+type Expr = enum {
+    Num num
+    Var str
+    Let { name: str, val: Expr, rhs: Expr }
+    Fun { args: Expr[], body: Expr }
+    Bin { lhs: Expr, op: BinOp, rhs: Expr }
+}
 
 type Pair = ('A, 'B)
 

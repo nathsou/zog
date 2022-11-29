@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum Symbol: CustomStringConvertible {
+enum Symbol: CustomStringConvertible {
     case lparen, rparen, lbracket, rbracket, lcurlybracket, rcurlybracket, comma, semicolon, colon,
          eq, thinArrow, thickArrow, plus, minus, star, slash, percent, eqeq, bangeq, lss, leq, gtr,
          geq, bang, dot, dotdot, dotdotdot, dotdoteq, pipe, pluseq, minuseq, stareq, slasheq, underscore,
@@ -54,11 +54,11 @@ public enum Symbol: CustomStringConvertible {
     }
 }
 
-public enum Keyword: String {
+enum Keyword: String {
     case Let, Mut, If, Else, For, In, Return, Yield, Break, While, Check, And, Or, True, False,
          Iterator, Match
 
-    public static func parse(_ str: String) -> Keyword? {
+    static func parse(_ str: String) -> Keyword? {
         switch str {
         case "let": return .Let
         case "mut": return .Mut
@@ -82,7 +82,7 @@ public enum Keyword: String {
     }
 }
 
-public enum Token: Equatable, CustomStringConvertible {
+enum Token: Equatable, CustomStringConvertible {
     case num(Float64)
     case bool(Bool)
     case str(String)
@@ -114,7 +114,7 @@ public enum Token: Equatable, CustomStringConvertible {
     }
 }
 
-public struct TokenWithPos: CustomStringConvertible {
+struct TokenWithPos: CustomStringConvertible {
     let token: Token
     let start: Int
     let end: Int

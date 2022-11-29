@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum ParserError: Error, CustomStringConvertible, Equatable {
+enum ParserError: Error, CustomStringConvertible, Equatable {
     case unexepectedToken(Token)
     case expectedExpression
     case expectedStatement

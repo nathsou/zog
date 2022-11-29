@@ -168,6 +168,17 @@ extension Ty {
                 ctor: "record",
                 args: row.entries().map({ (_, ty) in ty.simplified() })
             )
+        case let .enum_(variants):
+            return SimplifiedTy(
+                ctor: "enum",
+                args: variants.map({ (name, ty) in
+                    if let ty {
+                        return SimplifiedTy(ctor: name, args: [ty.simplified()])
+                    } else {
+                        return SimplifiedTy(ctor: name, args: [])
+                    }
+                })
+            )
         }
     }
 }

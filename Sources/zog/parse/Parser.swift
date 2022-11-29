@@ -7,7 +7,7 @@
 
 import Foundation
 
-public class Parser {
+class Parser {
     let tokens: [TokenWithPos]
     var index: Int
     var statementStartIndex: Int
@@ -402,8 +402,11 @@ public class Parser {
                 let pat = try pattern()
                 try consume(.symbol(.thickArrow))
                 let body = try expression()
-                try consume(.symbol(.semicolon))
                 cases.append((pat, body))
+                
+                if !match(.symbol(.semicolon), .symbol(.comma)) {
+                    break
+                }
             } while !check(.symbol(.rcurlybracket))
             
             try consume(.symbol(.rcurlybracket))
@@ -848,7 +851,7 @@ public class Parser {
         return lhs
     }
 
-    // prim -> unit | num | bool | str | tuple | record | parens
+    // prim -> unit | num | bool | str | tuple | record | enum | parens
     func primitiveType() throws -> Ty {
         switch peek() {
         case .identifier("num"):
@@ -872,6 +875,9 @@ public class Parser {
         case .symbol(.lparen):
             advance()
             return try tupleOrParensOrUnitType()
+        case .identifier("enum"):
+            advance()
+            return try enumType()
         default:
             throw ParserError.expectedType
         }
@@ -910,6 +916,27 @@ public class Parser {
         try consume(.symbol(.rcurlybracket))
         
         return .record(Row.from(entries: entries, tail: Ty.fresh(level: generalizationLevel)))
+    }
+    
+    // enum -> 'enum' '{' (identifier ty)* '}'
+    func enumType() throws -> Ty {
+        var variants = [(name: String, ty: Ty?)]()
+        
+        try consume(.symbol(.lcurlybracket))
+        
+        while case let .identifier(name) = peek() {
+            advance()
+            let ty = attempt(type)
+            variants.append((name, ty))
+            
+            if !match(.symbol(.semicolon), .symbol(.comma)) {
+                break
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        
+        return .enum_(variants)
     }
     
     // var -> upperIdentifier ('<' commas(type) '>')?
