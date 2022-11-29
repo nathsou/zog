@@ -151,25 +151,38 @@ extension CoreExpr {
                 ).codegen(ctx)
             }
         case let .Switch(expr, cases, defaultCase, _):
-            let result = JSExpr.variable(ctx.declare("result"))
-            ctx.statements.append(.varDecl(mut: true, result, .undefined))
-            
-            let codegenBody = { (body: CoreExpr) throws -> [JSStmt] in
-                let bodyCtx = ctx.child()
-                let rhs = try body.codegen(bodyCtx)
-                return bodyCtx.statements + [
-                    .expr(.assignment(result, .eq, rhs)),
-                    .break_
-                ]
+            if let defaultCase, cases.count == 1 {
+                let (test, action) = cases[0]
+                return .ternary(
+                    cond: .binaryOperation(
+                        try expr.codegen(ctx),
+                        .equ,
+                        try test.codegen(ctx)
+                    ),
+                    thenExpr: try action.codegen(ctx),
+                    elseExpr: try defaultCase.codegen(ctx)
+                )
+            } else {
+                let result = JSExpr.variable(ctx.declare("result"))
+                ctx.statements.append(.varDecl(mut: true, result, .undefined))
+                
+                let codegenBody = { (body: CoreExpr) throws -> [JSStmt] in
+                    let bodyCtx = ctx.child()
+                    let rhs = try body.codegen(bodyCtx)
+                    return bodyCtx.statements + [
+                        .expr(.assignment(result, .eq, rhs)),
+                        .break_
+                    ]
+                }
+                
+                ctx.statements.append(.switch_(
+                    subject: try expr.codegen(ctx),
+                    cases: try cases.map({ (val, body) in (try val.codegen(ctx), try codegenBody(body))}),
+                    defaultCase: defaultCase != nil ? try codegenBody(defaultCase!) : nil
+                ))
+                
+                return result
             }
-            
-            ctx.statements.append(.switch_(
-                subject: try expr.codegen(ctx),
-                cases: try cases.map({ (val, body) in (try val.codegen(ctx), try codegenBody(body))}),
-                defaultCase: defaultCase != nil ? try codegenBody(defaultCase!) : nil
-            ))
-            
-            return result
         }
     }
 }
