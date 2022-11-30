@@ -48,7 +48,7 @@ extension CoreExpr {
                 }
                 
                 if let ann {
-                    try unify(patTy, ann)
+                    try env.unify(patTy, ann)
                 }
             }
             
@@ -58,9 +58,9 @@ extension CoreExpr {
             var actualRetTy = try body.infer(bodyEnv, level)
             if isIterator {
                 actualRetTy = .iterator(.fresh(level: level))
-                try unify(retTy, actualRetTy)
+                try env.unify(retTy, actualRetTy)
             } else {
-                try unify(retTy, actualRetTy)
+                try env.unify(retTy, actualRetTy)
             }
             TypeEnv.popFunctionInfo()
             
@@ -69,15 +69,15 @@ extension CoreExpr {
             let argsTy = try args.map({ arg in try arg.infer(env, level) })
             let funTy = try f.infer(env, level)
             let expectedTy = Ty.fun(argsTy, retTy)
-            try unify(expectedTy, funTy)
+            try env.unify(expectedTy, funTy)
             
             tau = retTy
         case let .If(cond, thenExpr, elseExpr, _):
             let condTy = try cond.infer(env, level)
-            try unify(condTy, .bool)
+            try env.unify(condTy, .bool)
             let thenTy = try thenExpr.infer(env, level)
             let elseTy = try elseExpr.infer(env, level)
-            try unify(thenTy, elseTy)
+            try env.unify(thenTy, elseTy)
             tau = thenTy
         case let .UnaryOp(op, expr, _):
             let exprTy = try expr.infer(env, level)
@@ -87,7 +87,7 @@ extension CoreExpr {
             case .logicalNegation: tau = .bool
             }
             
-            try unify(exprTy, tau)
+            try env.unify(exprTy, tau)
         case let .BinaryOp(lhs, op, rhs, _):
             let lhsTy = try lhs.infer(env, level)
             let rhsTy = try rhs.infer(env, level)
@@ -106,8 +106,8 @@ extension CoreExpr {
                 retTy = .bool
             }
             
-            try unify(lhsTy, argTy)
-            try unify(rhsTy, argTy)
+            try env.unify(lhsTy, argTy)
+            try env.unify(rhsTy, argTy)
             
             tau = retTy
         case let .Assignment(lhs, op, rhs, _):
@@ -116,11 +116,11 @@ extension CoreExpr {
             
             switch op {
             case .plusEq, .minusEq, .timesEq, .divideEq:
-                try unify(lhsTy, .num)
-                try unify(rhsTy, .num)
+                try env.unify(lhsTy, .num)
+                try env.unify(rhsTy, .num)
                 tau = .num
             case .eq:
-                try unify(lhsTy, rhsTy)
+                try env.unify(lhsTy, rhsTy)
                 tau = rhsTy
             }
         case let .Block(stmts, ret, ty):
@@ -130,13 +130,13 @@ extension CoreExpr {
                 try stmt.infer(blockEnv, level)
                 
                 if case let .Return(expr) = stmt, expr != nil {
-                    try unify(expr!.ty, ty)
+                    try env.unify(expr!.ty, ty)
                 }
             }
             
             if let ret {
                 let retTy = try ret.infer(blockEnv, level)
-                try unify(retTy, ty)
+                try env.unify(retTy, ty)
             }
             
             tau = ty
@@ -148,16 +148,16 @@ extension CoreExpr {
             
             for elem in elems {
                 let ty = try elem.infer(env, level)
-                try unify(ty, elemTy)
+                try env.unify(ty, elemTy)
             }
             
             tau = .array(elemTy)
         case let .ArraySubscript(elems, index, _):
             let itemTy = Ty.fresh(level: level)
             let arrayTy = try elems.infer(env, level)
-            try unify(arrayTy, .array(itemTy))
+            try env.unify(arrayTy, .array(itemTy))
             let indexTy = try index.infer(env, level)
-            try unify(indexTy, .num)
+            try env.unify(indexTy, .num)
             tau = itemTy
         case let .Record(entries, _):
             let fields = try entries.map({ (field, val) in (field, try val.infer(env, level)) })
@@ -166,7 +166,7 @@ extension CoreExpr {
             let tail = Ty.fresh(level: level)
             let partialRecordTy = Ty.record(Row.extend(field: field, ty: fieldTy, tail: tail))
             let recordTy = try record.infer(env, level)
-            try unify(recordTy, partialRecordTy)
+            try env.unify(recordTy, partialRecordTy)
             tau = fieldTy
         case let .Raw(_, ty):
             tau = ty
@@ -180,13 +180,13 @@ extension CoreExpr {
                     try bodyEnv.declare(name, ty: ty)
                 }
                 
-                try unify(patTy, exprTy)
+                try env.unify(patTy, exprTy)
                 let bodyTy = try body.infer(bodyEnv, level)
-                try unify(bodyTy, ty)
+                try env.unify(bodyTy, ty)
             }
             
             if cases.isEmpty {
-                try unify(ty, .unit)
+                try env.unify(ty, .unit)
             }
             
             tau = ty
@@ -195,21 +195,21 @@ extension CoreExpr {
             
             for (val, body) in cases {
                 let valTy = try val.infer(env, level)
-                try unify(exprTy, valTy)
+                try env.unify(exprTy, valTy)
                 let bodyTy = try body.infer(env, level)
-                try unify(bodyTy, ty)
+                try env.unify(bodyTy, ty)
             }
             
             if let defaultCase {
                 let bodyTy = try defaultCase.infer(env, level)
-                try unify(bodyTy, ty)
+                try env.unify(bodyTy, ty)
             }
             
             tau = ty
         }
         
         let ty = self.ty
-        try unify(tau, ty)
+        try env.unify(tau, ty)
         
         return ty
     }
@@ -232,10 +232,10 @@ extension CoreStmt {
             let valTy = try val.infer(rhsEnv, level + 1)
             
             if let ann {
-                try unify(ann, valTy)
+                try env.unify(ann, valTy)
             }
             
-            try unify(patternTy, valTy)
+            try env.unify(patternTy, valTy)
             
             for (name, ty) in patternVars {
                 // https://en.wikipedia.org/wiki/Value_restriction
@@ -247,10 +247,10 @@ extension CoreStmt {
         case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy = Ty.fresh(level: level)
-            try unify(iterTy, .iterator(iterItemTy))
+            try env.unify(iterTy, .iterator(iterItemTy))
             let bodyEnv = env.child()
             let (patternTy, patternVars) = pat.ty(level: level)
-            try unify(patternTy, iterItemTy)
+            try env.unify(patternTy, iterItemTy)
             
             for (name, ty) in patternVars {
                 try bodyEnv.declare(name, ty: ty)
@@ -261,7 +261,7 @@ extension CoreStmt {
             }
         case let .While(cond, body):
             let condTy = try cond.infer(env, level)
-            try unify(condTy, .bool)
+            try env.unify(condTy, .bool)
             let bodyEnv = env.child()
             
             for stmt in body {
@@ -269,7 +269,7 @@ extension CoreStmt {
             }
         case let .If(cond, then, else_):
             let condTy = try cond.infer(env, level)
-            try unify(condTy, .bool)
+            try env.unify(condTy, .bool)
             let thenEnv = env.child()
             
             for stmt in then {
@@ -286,7 +286,7 @@ extension CoreStmt {
         case let .Return(expr):
             let exprTy = try expr?.infer(env, level) ?? .unit
             if let (funcRetTy, _) = TypeEnv.peekFunctionInfo() {
-                try unify(exprTy, funcRetTy)
+                try env.unify(exprTy, funcRetTy)
             } else {
                 throw TypeError.cannotReturnOutsideFunctionBody
             }
@@ -298,7 +298,7 @@ extension CoreStmt {
                 if !funcInfo.isIterator {
                     throw TypeError.cannotYieldOutsideIteratorBody
                 } else {
-                    try unify(funcInfo.returnTy, .iterator(expr.ty))
+                    try env.unify(funcInfo.returnTy, .iterator(expr.ty))
                 }
             }
         }
@@ -310,8 +310,8 @@ extension CoreDecl {
         switch self {
         case let .Stmt(stmt):
             try stmt.infer(env, level)
-        case .TypeAlias(_, _):
-            break
+        case let .TypeAlias(name, ty):
+            env.declareAlias(name: name, ty: ty)
         }
     }
 }

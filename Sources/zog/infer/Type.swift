@@ -22,6 +22,7 @@ class TyContext {
 class TypeEnv: CustomStringConvertible {
     let parent: TypeEnv?
     var vars = [String:Ty]()
+    var aliases = [String:Ty]()
     typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
     static var functionInfoStack = [FunctionInfo]()
     
@@ -53,8 +54,14 @@ class TypeEnv: CustomStringConvertible {
         vars[name] = ty
     }
     
+    func declareAlias(name: String, ty: Ty) {
+        aliases[name] = ty
+    }
+    
     func child() -> TypeEnv {
-        return .init(parent: self)
+        let child = TypeEnv.init(parent: self)
+        child.aliases = aliases
+        return child
     }
     
     static func pushFunctionInfo(retTy: Ty, isIterator: Bool) {
@@ -357,94 +364,107 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
     try go(ty)
 }
 
-// see https://github.com/tomprimozic/type-systems
-func unify(_ s: Ty, _ t: Ty) throws {
-    let startingEq = (s, t)
-    var eqs = [(s, t)]
-    
-    while let (s, t) = eqs.popLast() {
-        if s != t {
-            switch (s, t) {
-            case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
-                eqs.append(contentsOf: zip(args1, args2))
-            case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
-                eqs.append(contentsOf: zip(args1, args2))
-                eqs.append((ret1, ret2))
-            case let (.variable(v), ty), let (ty, .variable(v)):
-                switch v.ref {
-                case let .unbound(id, lvl):
-                    if case let .variable(v2) = ty, case let .unbound(id2, _) = v2.ref, id2 == id {
-                        assertionFailure("There should only be one instance of a particular type variable.")
+let primitiveTypes = Set(["num", "str", "bool", "unit", "Tuple", "Array", "Iterator"])
+
+extension TypeEnv {
+        // see https://github.com/tomprimozic/type-systems
+    func unify(_ s: Ty, _ t: Ty) throws {
+        let startingEq = (s, t)
+        var eqs = [(s, t)]
+        
+        while let (s, t) = eqs.popLast() {
+            if s != t {
+                switch (s, t) {
+                case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
+                    eqs.append(contentsOf: zip(args1, args2))
+                case let (.const(f, args), other) where !primitiveTypes.contains(f),
+                     let (other, .const(f, args)) where !primitiveTypes.contains(f):
+                    if !primitiveTypes.contains(f) {
+                        if let alias = self.aliases[f] {
+                            eqs.append((alias, other))
+                        } else {
+                            throw TypeError.couldNotResolveType(.const(f, args))
+                        }
                     }
-                    
-                    try occursCheckAdjustLevels(id: id, level: lvl, ty: ty)
-                    
-                    v.ref = .link(ty)
-                case let .link(to):
-                    eqs.append((to, ty))
-                case .generic(_):
+                case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
+                    eqs.append(contentsOf: zip(args1, args2))
+                    eqs.append((ret1, ret2))
+                case let (.variable(v), ty), let (ty, .variable(v)):
+                    switch v.ref {
+                    case let .unbound(id, lvl):
+                        if case let .variable(v2) = ty, case let .unbound(id2, _) = v2.ref, id2 == id {
+                            assertionFailure("There should only be one instance of a particular type variable.")
+                        }
+                        
+                        try occursCheckAdjustLevels(id: id, level: lvl, ty: ty)
+                        
+                        v.ref = .link(ty)
+                    case let .link(to):
+                        eqs.append((to, ty))
+                    case .generic(_):
+                        throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
+                    }
+                case let (.record(r1), .record(r2)):
+                    switch (r1, r2) {
+                    case (.empty, .empty):
+                        break
+                    case let (.extend(field1, ty1, tail1), .extend(_, _, _)):
+                        let isTailUnbound: Bool
+                        if case let .variable(v) = tail1, case .unbound(_, _) = v.ref {
+                            isTailUnbound = true
+                        } else {
+                            isTailUnbound = false
+                        }
+                        
+                        let tail2 = try rewriteRow(t, field: field1, ty: ty1)
+                        
+                        if isTailUnbound, case let .variable(v) = tail1, case .link(_) = v.ref {
+                            throw TypeError.recursiveType(.record(r1), .record(r2))
+                        }
+                        
+                        eqs.append((tail1, tail2))
+                    default:
+                        throw TypeError.cannotUnify(startingEq, failedWith: (.record(r1), .record(r2)))
+                    }
+                default:
                     throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
                 }
-            case let (.record(r1), .record(r2)):
-                switch (r1, r2) {
-                case (.empty, .empty):
-                    break
-                case let (.extend(field1, ty1, tail1), .extend(_, _, _)):
-                    let isTailUnbound: Bool
-                    if case let .variable(v) = tail1, case .unbound(_, _) = v.ref {
-                        isTailUnbound = true
-                    } else {
-                        isTailUnbound = false
-                    }
-                    
-                    let tail2 = try rewriteRow(t, field: field1, ty: ty1)
-                    
-                    if isTailUnbound, case let .variable(v) = tail1, case .link(_) = v.ref {
-                        throw TypeError.recursiveType(.record(r1), .record(r2))
-                    }
-                    
-                    eqs.append((tail1, tail2))
-                default:
-                    throw TypeError.cannotUnify(startingEq, failedWith: (.record(r1), .record(r2)))
-                }
-            default:
-                throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
             }
         }
     }
-}
-
-func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
-    switch row2 {
-    case .record(let row):
-        switch row {
-        case .empty:
-            throw TypeError.recordDoesNotContainField(row2, field)
-        case let .extend(field: field2, ty: ty2, tail: tail2):
-            if field2 == field {
-                try unify(ty2, ty)
-                return tail2
+    
+    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
+        switch row2 {
+        case .record(let row):
+            switch row {
+            case .empty:
+                throw TypeError.recordDoesNotContainField(row2, field)
+            case let .extend(field: field2, ty: ty2, tail: tail2):
+                if field2 == field {
+                    try unify(ty2, ty)
+                    return tail2
+                }
+                
+                return .record(.extend(field: field2, ty: ty2, tail: try rewriteRow(tail2, field: field, ty: ty)))
             }
-            
-            return .record(.extend(field: field2, ty: ty2, tail: try rewriteRow(tail2, field: field, ty: ty)))
-        }
-    case .variable(let v):
-        switch v.ref {
-        case let .unbound(_, level):
-            let tail2 = Ty.fresh(level: level)
-            let ty2 = Ty.record(.extend(field: field, ty: ty, tail: tail2))
-            v.ref = .link(ty2)
-            return tail2
-        case let .link(to):
-            return try rewriteRow(to, field: field, ty: ty)
+        case .variable(let v):
+            switch v.ref {
+            case let .unbound(_, level):
+                let tail2 = Ty.fresh(level: level)
+                let ty2 = Ty.record(.extend(field: field, ty: ty, tail: tail2))
+                v.ref = .link(ty2)
+                return tail2
+            case let .link(to):
+                return try rewriteRow(to, field: field, ty: ty)
+            default:
+                break
+            }
         default:
             break
         }
-    default:
-        break
+        
+        throw TypeError.expectedRecordType(row2)
     }
-    
-    throw TypeError.expectedRecordType(row2)
 }
 
 extension Ty {

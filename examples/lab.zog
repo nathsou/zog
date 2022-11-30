@@ -1,6 +1,6 @@
 let print: 'T => () = raw { console.log }
 
-type BinOp = enum { add, sub, mul, div }
+type BinOp = enum { Add, Sub, Mul, Div }
 
 type Expr = enum {
     Num num
@@ -10,14 +10,13 @@ type Expr = enum {
     Bin { lhs: Expr, op: BinOp, rhs: Expr }
 }
 
-type Pair = ('A, 'B)
+// Idea compound type projection operator:
+// Expr.Fun = { args: Expr[], body: Expr }
+// Expr.Fun.args = Expr[]
+// ('A, 'B).0 = 'A
 
-let m = match ("hoy", { a: 3, b: 1 }) {
-    ("yop", { a: 1 }) => 1
-    ("hey", { a: 2 }) => 2
-    ("hoy", { b: 1, a: 3 }) => 3
-    ("hii", { b: 4 }) => 4
-    _ => 0
-}
+type Vec2 = { x: num, y: num }
 
-print(m)
+let apply = f => (u: Vec2, v: Vec2): Vec2 => { x: f(u.x, v.x), y: f(u.y, v.y) }
+let add = apply((a, b) => a + b)
+let sub = apply((a, b) => a - b)
