@@ -685,9 +685,16 @@ class Parser {
         case .raw(let js):
             advance()
             return .Raw(js: js)
-        case .identifier(let n):
+        case .identifier(let id) where id.first!.isLowercase:
             advance()
-            return .Var(n)
+            return .Var(id)
+        case .identifier(let id) where peek(1) == .symbol(.dot): // Type.Variant
+            advance()
+            return try variant(typeName: id) // Variant
+        case .identifier(_):
+            return try variant(typeName: nil)
+        case .symbol(.dot): // .Variant
+            return try variant(typeName: nil)
         case .symbol(.lparen):
             advance()
             return try tupleOrParensOrUnit()
@@ -801,6 +808,17 @@ class Parser {
         }
     }
     
+    func variant(typeName: String?) throws -> Expr {
+        if check(.symbol(.dot)) {
+            advance()
+        }
+        
+        let variantName = try upperIdentifier()
+        let val = attempt(expression)
+        
+        return .Variant(typeName: typeName, variantName: variantName, val: val)
+    }
+    
     // ------ types ------
     
     func type() throws -> Ty {
@@ -863,6 +881,9 @@ class Parser {
         case .identifier("str"):
             advance()
             return .str
+        case .identifier("enum"):
+            advance()
+            return try enumType()
         case .identifier(let name) where name.first!.isUppercase:
             advance()
             return try constType(name: name)
@@ -875,9 +896,6 @@ class Parser {
         case .symbol(.lparen):
             advance()
             return try tupleOrParensOrUnitType()
-        case .identifier("enum"):
-            advance()
-            return try enumType()
         default:
             throw ParserError.expectedType
         }
@@ -920,13 +938,13 @@ class Parser {
     
     // enum -> 'enum' '{' (identifier ty)* '}'
     func enumType() throws -> Ty {
-        var variants = [(name: String, ty: Ty?)]()
+        var variants = [(name: String, ty: Ty)]()
         
         try consume(.symbol(.lcurlybracket))
         
         while case let .identifier(name) = peek() {
             advance()
-            let ty = attempt(type)
+            let ty = attempt(type) ?? .unit
             variants.append((name, ty))
             
             if !match(.symbol(.semicolon), .symbol(.comma)) {
@@ -936,7 +954,7 @@ class Parser {
         
         try consume(.symbol(.rcurlybracket))
         
-        return .enum_(variants)
+        return .enum_(Row.from(variants: variants))
     }
     
     // var -> upperIdentifier ('<' commas(type) '>')?
@@ -970,7 +988,11 @@ class Parser {
             return .any
         case let .identifier(name):
             advance()
-            return .variable(name)
+            if name.first!.isLowercase {
+                return .variable(name)
+            } else {
+                return try variantPattern(name: name)
+            }
         case .symbol(.lparen) where !check(.symbol(.rparen), lookahead: 1):
             advance()
             return try tupleOreParensPattern()
@@ -1021,5 +1043,10 @@ class Parser {
         try consume(.symbol(.rcurlybracket))
         
         return .record(entries)
+    }
+    
+    func variantPattern(name: String) throws -> Pattern {
+        let pat = attempt(pattern)
+        return .variant(name, pat)
     }
 }

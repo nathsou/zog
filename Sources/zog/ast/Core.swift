@@ -26,6 +26,7 @@ indirect enum CoreExpr {
     case Raw(js: String, ty: Ty)
     case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
+    case Variant(typeName: String?, variantName: String, val: CoreExpr?, ty: Ty)
     
     public var ty: Ty {
         switch self {
@@ -47,6 +48,7 @@ indirect enum CoreExpr {
         case .Raw(_, let ty): return ty
         case .Match(_, _, let ty): return ty
         case .Switch(_, _, _, let ty): return ty
+        case .Variant(_, _, _, let ty): return ty
         }
     }
 }
@@ -104,6 +106,13 @@ extension Expr {
             return .Match(
                 expr.core(lvl),
                 cases: cases.map({ (pat, body) in (pat.core(), body.core(lvl)) }),
+                ty: ty()
+            )
+        case let .Variant(typeName, variantName, val):
+            return .Variant(
+                typeName: typeName,
+                variantName: variantName,
+                val: val.map({ $0.core(lvl) }),
                 ty: ty()
             )
         }
@@ -177,6 +186,7 @@ enum CorePattern: CustomStringConvertible {
     case literal(Literal)
     indirect case tuple([CorePattern])
     indirect case record([(field: String, pattern: CorePattern?)])
+    indirect case variant(String, CorePattern?)
     
     func ty(level: UInt) -> (ty: Ty, vars: [String:Ty]) {
         var vars = [String:Ty]()
@@ -213,6 +223,8 @@ enum CorePattern: CustomStringConvertible {
                 }
                 
                 return .record(Row.from(entries: rowEntries, tail: .fresh(level: level)))
+            case let .variant(name, pat):
+                return .enum_(Row.from(variants: [(name, pat.map(go) ?? .unit)], tail: .fresh(level: level)))
             }
         }
         
@@ -226,6 +238,8 @@ enum CorePattern: CustomStringConvertible {
         case .tuple(let args): return args.allSatisfy({ $0.isInfallible() })
         case .record(let entries):
             return entries.allSatisfy({ $0.pattern?.isInfallible() ?? true })
+        case let .variant(_, pat):
+            return pat.map({ $0.isInfallible() }) ?? true
         }
     }
     
@@ -241,6 +255,8 @@ enum CorePattern: CustomStringConvertible {
             return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", ")))"
         case let .record(entries):
             return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
+        case let .variant(name, pat):
+            return "\(name) \(pat.map({ "\($0)" }) ?? "")"
         }
     }
 }
@@ -258,6 +274,8 @@ extension Pattern {
             return .tuple(args.map({ p in p.core() }))
         case let .record(entries):
             return .record(entries.map({ (k, p) in (k, p?.core()) }))
+        case let .variant(name, pat):
+            return .variant(name, pat.map({ $0.core() }))
         }
     }
 }

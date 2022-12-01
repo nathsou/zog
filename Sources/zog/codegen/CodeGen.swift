@@ -10,43 +10,41 @@ import Foundation
 class CoreContext {
     let parent: CoreContext?
     var statements = [JSStmt]()
-    var linearVarCounts = [String:Int]()
-    var scopeVariables = [String:String]()
+    var variables = Set<String>()
+    let isLinear: Bool
     
-    init(parent: CoreContext? = nil) {
+    init(parent: CoreContext? = nil, linear: Bool) {
         self.parent = parent
+        self.isLinear = linear
     }
     
-    func child() -> CoreContext {
-        return .init(parent: self)
+    func child(linear: Bool) -> CoreContext {
+        return .init(parent: self, linear: linear)
+    }
+    
+    private func countVars(name: String) -> Int {
+        if let parent {
+            return parent.countVars(name: name) + (variables.contains(name) ? 1 : 0)
+        }
+        
+        return variables.contains(name) ? 1 : 0
     }
     
     func declare(_ name: String) -> String {
-        let newName = declareLinear(name)
-        scopeVariables[name] = newName
-        return newName
+        variables.insert(name)
+        
+        let count = countVars(name: name)
+        return formatVarName(name, count: count)
     }
     
     func lookup(_ name: String) throws -> String {
-        if let newName = scopeVariables[name] {
-            return newName
+        let count = countVars(name: name)
+        
+        if count == 0 {
+            throw TypeError.unknownVariable(name)
         }
         
-        if let parent {
-            return try parent.lookup(name)
-        }
-        
-        throw TypeError.unknownVariable(name)
-    }
-    
-    func declareLinear(_ name: String) -> String {
-        if let parent {
-            return parent.declareLinear(name)
-        } else {
-            let newCount = (linearVarCounts[name] ?? 0) + 1
-            linearVarCounts.updateValue(newCount, forKey: name)
-            return formatVarName(name, count: newCount)
-        }
+        return formatVarName(name, count: count)
     }
     
     func formatVarName(_ name: String, count: Int) -> String {
@@ -79,7 +77,7 @@ extension CoreExpr {
         case let .Parens(expr, _): return .parens(try expr.codegen(ctx))
         case let .Var(name, _): return .variable(try ctx.lookup(name))
         case let .Fun(args, _, body, isIterator, _):
-            let funCtx = ctx.child()
+            let funCtx = ctx.child(linear: false)
             let newArgs = try args.map({ (arg, _) in try arg.codegen(ctx) })
             let ret = try body.codegen(funCtx)
             
@@ -95,7 +93,7 @@ extension CoreExpr {
         case let .Call(f, args, _):
             return .call(lhs: try f.codegen(ctx), args: try args.map({ try $0.codegen(ctx) }))
         case let .Block(stmts, ret, _):
-            let blockCtx = ctx.child()
+            let blockCtx = ctx.child(linear: true)
             
             for stmt in stmts {
                 blockCtx.statements.append(try stmt.codegen(blockCtx))
@@ -167,7 +165,7 @@ extension CoreExpr {
                 ctx.statements.append(.varDecl(mut: true, result, .undefined))
                 
                 let codegenBody = { (body: CoreExpr) throws -> [JSStmt] in
-                    let bodyCtx = ctx.child()
+                    let bodyCtx = ctx.child(linear: false)
                     let rhs = try body.codegen(bodyCtx)
                     return bodyCtx.statements + [
                         .expr(.assignment(result, .eq, rhs)),
@@ -183,6 +181,21 @@ extension CoreExpr {
                 
                 return result
             }
+        case let .Variant(_, variantName, val, ty):
+            if case .enum_(_) = ty.deref() {
+                let tag = JSExpr.string(variantName)
+                
+                if let val {
+                    return .object([
+                        ("variant", tag),
+                        ("value", try val.codegen(ctx))
+                    ])
+                } else {
+                    return .object([("variant", tag)])
+                }
+            } else {
+                fatalError("unresolved enum type in variant expression")
+            }
         }
     }
 }
@@ -197,13 +210,13 @@ extension CoreStmt {
         case let .Let(mut, pat, ty: _, val):
             return .varDecl(mut: mut, try pat.codegen(ctx), try val.codegen(ctx))
         case let .If(cond, then, else_):
-            let thenCtx = ctx.child()
+            let thenCtx = ctx.child(linear: false)
             try then.forEach({ stmt in thenCtx.statements.append(try stmt.codegen(thenCtx)) })
             
             var elseStmts: [JSStmt]? = nil
             
             if let else_ {
-                let elseCtx = ctx.child()
+                let elseCtx = ctx.child(linear: false)
                 try else_.forEach({ stmt in elseCtx.statements.append(try stmt.codegen(elseCtx)) })
                 elseStmts = elseCtx.statements
             }
@@ -214,11 +227,11 @@ extension CoreStmt {
                 else_: elseStmts
             )
         case let .While(cond, body):
-            let bodyCtx = ctx.child()
+            let bodyCtx = ctx.child(linear: false)
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             return .whileLoop(cond: try cond.codegen(ctx), body: bodyCtx.statements)
         case let .For(pat, iterator, body):
-            let bodyCtx = ctx.child()
+            let bodyCtx = ctx.child(linear: false)
             let corePat = try pat.codegen(ctx)
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             return .forOfLoop(
@@ -254,9 +267,8 @@ extension CorePattern {
             return .variable(ctx.declare("_"))
         case let .variable(name):
             return .variable(ctx.declare(name))
-        case let .literal(lit):
-            assertionFailure("pattern is not infallible")
-            return try CoreExpr.Literal(lit, ty: lit.ty).codegen(ctx)
+        case .literal(_), .variant(_, _):
+            fatalError("pattern is not infallible")
         case let .tuple(patterns):
             return .array(try patterns.map({ try $0.codegen(ctx) }))
         case let .record(entries):
@@ -299,22 +311,32 @@ extension DecisionTree {
                             mut: false,
                             pat: .variable(ctx.declare(name)),
                             ty: nil,
-                            val: subject.at(path: path)
+                            val: subject.at(path: path, isSubject: false)
                         )
                     }),
                     ret: action,
                     ty: returnTy
                 )
             case let .switch_(path, cases, defaultCase):
-                let proj = subject.at(path: path)
+                var proj = subject.at(path: path, isSubject: true)
                 var tests = [(CoreExpr, CoreExpr)]()
+                var isEnum = false
                 
                 for (ctor, _, dt) in cases {
-                    if case .literal(let lit) = ctor {
+                    switch ctor {
+                    case let .literal(lit):
                         tests.append((
                             .Literal(lit, ty: lit.ty),
                             aux(dt, subject: subject)
                         ))
+                    case let .variant(tag):
+                        isEnum = true
+                        tests.append((
+                            .Literal(.str(tag), ty: .str),
+                            aux(dt, subject: subject)
+                        ))
+                    default:
+                        continue
                     }
                 }
                 
@@ -324,6 +346,10 @@ extension DecisionTree {
                     } else if defaultCase != nil {
                         return aux(defaultCase!, subject: subject)
                     }
+                }
+                
+                if isEnum {
+                    proj = .RecordSelect(proj, field: "variant", ty: proj.ty)
                 }
                 
                 return .Switch(

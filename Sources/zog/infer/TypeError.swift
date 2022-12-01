@@ -15,6 +15,7 @@ enum TypeError: Error, CustomStringConvertible {
     case cannotYieldOutsideIteratorBody
     case cannotRedeclareVariable(String)
     case recordDoesNotContainField(Ty, String)
+    case enumDoesNotContainVariant(Ty, String)
     case expectedRecordType(Ty)
     case patternDestructuringCanFail(CorePattern)
     case couldNotResolveType(Ty)
@@ -42,6 +43,8 @@ enum TypeError: Error, CustomStringConvertible {
             return "Cannot redeclare '\(name)'"
         case let .recordDoesNotContainField(record, field):
             return "record type '\(record)' does not contain field '\(field)'"
+        case let .enumDoesNotContainVariant(enum_, variant):
+            return "enum type '\(enum_)' does not contain variant '\(variant)'"
         case let .expectedRecordType(ty):
             return "Expected record type, got '\(ty)'"
         case let .patternDestructuringCanFail(pattern):

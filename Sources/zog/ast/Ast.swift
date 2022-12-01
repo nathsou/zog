@@ -115,6 +115,7 @@ indirect enum Expr: CustomStringConvertible {
     case Pipeline(arg1: Expr, f: String, remArgs: [Expr])
     case Raw(js: String)
     case Match(Expr, cases: [(Pattern, Expr)])
+    case Variant(typeName: String?, variantName: String, val: Expr?)
 
     public var description: String {
         switch self {
@@ -174,6 +175,10 @@ indirect enum Expr: CustomStringConvertible {
             return "raw {\n \(indent(js)) \n}"
         case let .Match(expr, cases):
             return "match \(expr) {\n\(cases.map({ (pat, body) in indent("\(pat) => \(body)") }).joined(separator: "\n"))\n}"
+        case let .Variant(typeName, variantName, nil):
+            return "\(typeName ?? "").\(variantName)"
+        case let .Variant(typeName, variantName, val):
+            return "\(typeName ?? "").\(variantName) \(val!)"
         }
     }
 }
@@ -243,6 +248,7 @@ enum Pattern: CustomStringConvertible {
     case literal(Literal)
     indirect case tuple([Pattern])
     indirect case record([(String, Pattern?)])
+    indirect case variant(String, Pattern?)
     
     public var description: String {
         switch self {
@@ -256,6 +262,12 @@ enum Pattern: CustomStringConvertible {
             return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", ")))"
         case let .record(entries):
             return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
+        case let .variant(name, pat):
+            if let pat {
+                return "\(name) \(pat)"
+            } else {
+                return name
+            }
         }
     }
 }

@@ -10,23 +10,54 @@ import Foundation
 // Based on "Compiling Pattern Matching to Good Decision Trees" by Luc Maranget
 // http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf
 
-typealias Path = [Int]
+enum PathKey {
+    case index(Int)
+    case variant(String)
+    
+    func asIndex() -> Int? {
+        if case let .index(n) = self {
+            return n
+        }
+        
+        return nil
+    }
+    
+    func asVariant() -> String? {
+        if case let .variant(name) = self {
+            return name
+        }
+        
+        return nil
+    }
+}
+
+typealias Path = [PathKey]
 
 extension CoreExpr {
-    func at(path: Path) -> CoreExpr {
+    func at(path: Path, isSubject: Bool) -> CoreExpr {
         var expr = self
         
-        for index in path {
+        for key in path {
             switch expr.ty.deref() {
             case let .const("Tuple", tys):
+                let index = key.asIndex()!
                 expr = .ArraySubscript(
                     expr,
                     index: .Literal(.num(Float64(index)), ty: .num),
                     ty: tys[index]
                 )
             case let .record(row):
-                let (key, ty) = row.entries()[index]
+                let index = key.asIndex()!
+                let (key, ty) = row.entries(sorted: true)[index]
                 expr = .RecordSelect(expr, field: key, ty: ty)
+            case let .enum_(row):
+                switch key {
+                case let .variant(variant):
+                    let ty = row.variantType(variant)!
+                    expr = .RecordSelect(expr, field: "value", ty: ty)
+                case .index(_):
+                    expr = .RecordSelect(expr, field: "value", ty: ty)
+                }
             default:
                 return expr
             }
@@ -37,10 +68,10 @@ extension CoreExpr {
 }
 
 enum Ctor: Hashable {
-    case tag(String)
     case tuple
     case record
     case literal(Literal)
+    case variant(String)
 }
 
 enum SimplifiedPattern {
@@ -86,7 +117,7 @@ extension CorePattern {
 
                     var subPatterns = [SimplifiedPattern]()
                 
-                    for (field, fieldTy) in row.entries() {
+                    for (field, fieldTy) in row.entries(sorted: true) {
                         if let pat = presentEntries[field] {
                             if let pat {
                                 subPatterns.append(aux(pat, fieldTy))
@@ -101,6 +132,17 @@ extension CorePattern {
                     return .const(.record, subPatterns)
                 } else {
                     fatalError("expected record pattern to be associated with a record type")
+                }
+            case let .variant(name, pat):
+                if case let .enum_(row) = ty.deref() {
+                    let associatedTy = row.variantType(name)!
+                    if let pat {
+                        return .const(.variant(name), [aux(pat, associatedTy)])
+                    } else {
+                        return .const(.variant(name), [])
+                    }
+                } else {
+                    fatalError("expected variant pattern to be associated with an enum type")
                 }
             }
         }
@@ -120,16 +162,20 @@ extension CorePattern {
                 break
             case .tuple(let args):
                 for (i, arg) in args.enumerated() {
-                    aux(arg, path + [i])
+                    aux(arg, path + [.index(i)])
                 }
             case .record(let entries):
                 let sortedEntries = entries.sorted(by: { $0.field < $1.field })
                 for (index, (field, p)) in sortedEntries.enumerated() {
                     if let p {
-                        aux(p, path + [index])
+                        aux(p, path + [.index(index)])
                     } else {
-                        vars[field] = path
+                        vars[field] = path + [.index(index)]
                     }
+                }
+            case .variant(let name, let pat):
+                if let pat {
+                    aux(pat, path + [.variant(name)])
                 }
             }
         }
@@ -166,18 +212,12 @@ extension Ty {
         case let .record(row):
             return SimplifiedTy(
                 ctor: "record",
-                args: row.entries().map({ (_, ty) in ty.simplified() })
+                args: row.entries(sorted: true).map({ (_, ty) in ty.simplified() })
             )
-        case let .enum_(variants):
+        case let .enum_(row):
             return SimplifiedTy(
                 ctor: "enum",
-                args: variants.map({ (name, ty) in
-                    if let ty {
-                        return SimplifiedTy(ctor: name, args: [ty.simplified()])
-                    } else {
-                        return SimplifiedTy(ctor: name, args: [])
-                    }
-                })
+                args: row.entries(sorted: true).map({ (_, ty) in ty.simplified() })
             )
         }
     }
@@ -221,7 +261,7 @@ enum DecisionTree: CustomStringConvertible {
         case .fail: return "fail"
         case let .leaf(_, action): return "\(action)"
         case let .switch_(occurrence, cases, defaultCase):
-            var casesFmt = cases.map({ (ctor, rowIndex, dt) in "\(ctor): \(rowIndex) => \(dt)" })
+            var casesFmt = cases.map({ (ctor, rowIndex, dt) in "\(ctor) => \(dt)" })
             if let defaultCase {
                 casesFmt.append("_ => \(defaultCase)")
             }
@@ -355,7 +395,7 @@ fileprivate struct ClauseMatrix {
             var cases = [(ctor: Ctor, rowIndex: Int, dt: DecisionTree)]()
             
             for (ctor, (arity: arity, rowIndex: rowIndex)) in hds {                
-                var o1 = (0..<arity).map({ i in occurrences[0] + [i] }) + occurrences[1...]
+                var o1 = (0..<arity).map({ i in occurrences[0] + [.index(i)] }) + occurrences[1...]
                 var S = matrix.specialized(ctor: ctor, args: matrix.types[0].args)
                 let Ak = aux(matrix: &S, occurrences: &o1)
                 cases.append((ctor, rowIndex, Ak))

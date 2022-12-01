@@ -58,6 +58,14 @@ class TypeEnv: CustomStringConvertible {
         aliases[name] = ty
     }
     
+    func lookupAlias(name: String) throws -> Ty {
+        if let alias = self.aliases[name] {
+            return alias
+        } else {
+            throw TypeError.couldNotResolveType(.const(name, []))
+        }
+    }
+    
     func child() -> TypeEnv {
         let child = TypeEnv.init(parent: self)
         child.aliases = aliases
@@ -77,7 +85,7 @@ class TypeEnv: CustomStringConvertible {
     }
     
     public var description: String {
-        let vars = self.vars.map({ (v, ty) in "    \(v): \(ty.canonical)" })
+        let vars = self.vars.map({ (v, ty) in indent("\(v): \(ty.canonical)") })
         return "{\n\(vars.joined(separator: ",\n"))\n}"
     }
 }
@@ -140,10 +148,10 @@ enum Row: Equatable {
     case empty
     case extend(field: String, ty: Ty, tail: Ty)
     
-    public static func from(entries: [(field: String, Ty)], tail: Ty = .record(.empty)) -> Row {
+    public static func from(entries: [(name: String, ty: Ty)], tail: Ty = .record(.empty)) -> Row {
         var row = Row.empty
         
-        for (index, (field, ty)) in entries.sorted(by: { $0.field < $1.field  }).enumerated() {
+        for (index, (field, ty)) in entries.sorted(by: { $0.name < $1.name  }).enumerated() {
             let rest = index == 0 ? tail : .record(row)
             row = .extend(field: field, ty: ty, tail: rest)
         }
@@ -151,24 +159,67 @@ enum Row: Equatable {
         return row
     }
     
-    func entries() -> [(key: String, ty: Ty)] {
+    public static func from(variants: [(name: String, ty: Ty)], tail: Ty = .enum_(.empty)) -> Row {
+        var row = Row.empty
+        
+        for (index, (field, ty)) in variants.sorted(by: { $0.name < $1.name  }).enumerated() {
+            let rest = index == 0 ? tail : .enum_(row)
+            row = .extend(field: field, ty: ty, tail: rest)
+        }
+        
+        return row
+    }
+    
+    func variantType(_ variant: String) -> Ty? {
+        func aux(_ row: Row) -> Ty? {
+            switch row {
+            case .empty:
+                return nil
+            case let .extend(name, ty, tail):
+                if name == variant {
+                    return ty
+                }
+                
+                if case let .enum_(tailRow) = tail.deref() {
+                    return aux(tailRow)
+                }
+                
+                return nil
+            }
+        }
+        
+        return aux(self)
+    }
+    
+    func entries(sorted: Bool) -> [(key: String, ty: Ty)] {
         var entries = [(key: String, ty: Ty)]()
         
-        func go(_ row: Row) {
+        func aux(_ row: Row) {
             switch row {
             case .empty:
                 break
             case let .extend(field, ty, tail):
                 entries.append((field, ty))
-                if case let .record(tailRow) = tail.deref() {
-                    go(tailRow)
+                switch tail.deref() {
+                case let .record(tailRow), let .enum_(tailRow):
+                    aux(tailRow)
+                default:
+                    break
                 }
             }
         }
         
-        go(self)
+        aux(self)
         
-        return entries.sorted(by: { $0.key < $1.key })
+        if sorted {
+            return entries.sorted(by: { $0.key < $1.key })
+        }
+        
+        return entries
+    }
+    
+    func asDictionary() -> [String:Ty] {
+        return .init(uniqueKeysWithValues: entries(sorted: false))
     }
     
     func map(types f: (_ ty: Ty) -> Ty) -> Row {
@@ -176,12 +227,19 @@ enum Row: Equatable {
         case .empty:
             return .empty
         case let .extend(field, ty, tail):
-            if case .record(let row) = tail {
+            switch tail {
+            case let .record(row):
                 return .extend(field: field, ty: f(ty), tail: .record(row.map(types: f)))
+            case let .enum_(row):
+                return .extend(field: field, ty: f(ty), tail: .enum_(row.map(types: f)))
+            default:
+                return .extend(field: field, ty: f(ty), tail: tail)
             }
-            
-            return .extend(field: field, ty: f(ty), tail: tail)
         }
+    }
+    
+    func indexOf(field: String) -> Int? {
+        return entries(sorted: true).firstIndex(where: { $0.key == field })
     }
 }
 
@@ -190,7 +248,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
     case const(String, [Ty])
     case fun([Ty], Ty)
     case record(Row)
-    case enum_([(name: String, ty: Ty?)])
+    case enum_(Row)
 
     static var num: Ty {
         return .const("num", [])
@@ -281,24 +339,27 @@ indirect enum Ty: Equatable, CustomStringConvertible {
             case let .fun(args, ret):
                 return "(\(args.map(go).joined(separator: ", "))) => \(go(ret))"
             case let .record(row):
-                let entries = row.entries()
+                let entries = row.entries(sorted: true)
                 if entries.isEmpty {
                     return "{}"
                 } else {
-                    let fields = row.entries().map({ (k, v) in "\(k): \(go(v))" }).joined(separator: ", ")
+                    let fields = row
+                        .entries(sorted: true)
+                        .map({ (k, v) in "\(k): \(go(v))" })
+                        .joined(separator: ", ")
                     
                     return "{ \(fields) }"
                 }
-            case let .enum_(variants):
-                let variantsFmt = variants.map({ (name, ty) in
-                    if let ty {
-                        return "\(name) \(ty)"
-                    } else {
+            case let .enum_(row):
+                let variantsFmt = row.entries(sorted: true).map({(name, ty) in
+                    if case .unit = ty {
                         return name
+                    } else {
+                        return "\(name) \(ty)"
                     }
                 })
                 
-                return "enum {\n\(indent(variantsFmt.joined(separator: "\n")))\n}"
+                return "enum {\n\(variantsFmt.map(indent).joined(separator: "\n"))\n}"
             }
         }
         
@@ -349,14 +410,12 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
 
             try go(ret)
         case let .record(row):
-            for (_, ty) in row.entries() {
+            for (_, ty) in row.entries(sorted: false) {
                 try go(ty)
             }
-        case let .enum_(variants):
-            for (_, ty) in variants {
-                if let ty {
-                    try go(ty)
-                }
+        case let .enum_(row):
+            for (_, ty) in row.entries(sorted: false) {
+                try go(ty)
             }
         }
     }
@@ -377,14 +436,11 @@ extension TypeEnv {
                 switch (s, t) {
                 case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
                     eqs.append(contentsOf: zip(args1, args2))
-                case let (.const(f, args), other) where !primitiveTypes.contains(f),
-                     let (other, .const(f, args)) where !primitiveTypes.contains(f):
+                case let (.const(f, _), other) where !primitiveTypes.contains(f),
+                     let (other, .const(f, _)) where !primitiveTypes.contains(f):
                     if !primitiveTypes.contains(f) {
-                        if let alias = self.aliases[f] {
-                            eqs.append((alias, other))
-                        } else {
-                            throw TypeError.couldNotResolveType(.const(f, args))
-                        }
+                        let alias = try self.lookupAlias(name: f)
+                        eqs.append((alias, other))
                     }
                 case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
                     eqs.append(contentsOf: zip(args1, args2))
@@ -416,7 +472,7 @@ extension TypeEnv {
                             isTailUnbound = false
                         }
                         
-                        let tail2 = try rewriteRow(t, field: field1, ty: ty1)
+                        let tail2 = try rewriteRow(t, field: field1, ty: ty1, isEnum: false)
                         
                         if isTailUnbound, case let .variable(v) = tail1, case .link(_) = v.ref {
                             throw TypeError.recursiveType(.record(r1), .record(r2))
@@ -426,6 +482,11 @@ extension TypeEnv {
                     default:
                         throw TypeError.cannotUnify(startingEq, failedWith: (.record(r1), .record(r2)))
                     }
+                case (.enum_(.empty), .enum_(.empty)):
+                    continue
+                case let (.enum_(.extend(field1, ty1, tail1)), .enum_(.extend(_, _, _))):
+                    let tail2 = try rewriteRow(t, field: field1, ty: ty1, isEnum: true)
+                    eqs.append((tail1, tail2))
                 default:
                     throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
                 }
@@ -433,7 +494,7 @@ extension TypeEnv {
         }
     }
     
-    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
+    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty, isEnum: Bool) throws -> Ty {
         switch row2 {
         case .record(let row):
             switch row {
@@ -445,17 +506,41 @@ extension TypeEnv {
                     return tail2
                 }
                 
-                return .record(.extend(field: field2, ty: ty2, tail: try rewriteRow(tail2, field: field, ty: ty)))
+                return .record(
+                    .extend(
+                        field: field2,
+                        ty: ty2,
+                        tail: try rewriteRow(tail2, field: field, ty: ty, isEnum: isEnum)
+                    )
+                )
+            }
+        case let .enum_(row):
+            switch row {
+            case .empty:
+                throw TypeError.enumDoesNotContainVariant(row2, field)
+            case let .extend(field: field2, ty: ty2, tail: tail2):
+                if field2 == field {
+                    try unify(ty2, ty)
+                    return tail2
+                }
+                
+                return .enum_(
+                    .extend(
+                        field: field2,
+                        ty: ty2,
+                        tail: try rewriteRow(tail2, field: field, ty: ty, isEnum: isEnum)
+                    )
+                )
             }
         case .variable(let v):
             switch v.ref {
             case let .unbound(_, level):
                 let tail2 = Ty.fresh(level: level)
-                let ty2 = Ty.record(.extend(field: field, ty: ty, tail: tail2))
-                v.ref = .link(ty2)
+                let row2 = Row.extend(field: field, ty: ty, tail: tail2)
+                v.ref = .link(isEnum ? .enum_(row2) : .record(row2))
                 return tail2
             case let .link(to):
-                return try rewriteRow(to, field: field, ty: ty)
+                return try rewriteRow(to, field: field, ty: ty, isEnum: isEnum)
             default:
                 break
             }
@@ -485,8 +570,8 @@ extension Ty {
             return .fun(args.map({ $0.generalize(level: level) }), ret.generalize(level: level))
         case let .record(row):
             return .record(row.map(types: { ty in ty.generalize(level: level) }))
-        case let .enum_(variants):
-            return .enum_(variants.map({ (name, ty) in (name, ty?.generalize(level: level)) }))
+        case let .enum_(row):
+            return .enum_(row.map(types: { ty in ty.generalize(level: level) }))
         }
     }
     
@@ -516,8 +601,8 @@ extension Ty {
                 return .fun(args.map(go), go(ret))
             case let .record(row):
                 return .record(row.map(types: go))
-            case let .enum_(variants):
-                return .enum_(variants.map({ (name, ty) in (name, ty.map(go)) }))
+            case let .enum_(row):
+                return .enum_(row.map(types: go))
             }
         }
         

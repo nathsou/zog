@@ -99,7 +99,7 @@ extension CoreExpr {
                 argTy = .num
                 retTy = .num
             case .equ, .neq, .gtr, .geq, .lss, .leq:
-                argTy = .num
+                argTy = Ty.fresh(level: level)
                 retTy = .bool
             case .and, .or:
                 argTy = .bool
@@ -205,6 +205,19 @@ extension CoreExpr {
                 try env.unify(bodyTy, ty)
             }
             
+            tau = ty
+        case let .Variant(typeName, variantName, val, ty):
+            if let typeName {
+                try env.unify(try env.lookupAlias(name: typeName), ty)
+            }
+            
+            let valTy = try val?.infer(env, level) ?? .unit
+            let tail = Ty.fresh(level: level)
+            let partialEnumTy = Ty.enum_(
+                Row.from(variants: [(variantName, valTy)], tail: tail)
+            )
+            
+            try env.unify(partialEnumTy, ty)
             tau = ty
         }
         
