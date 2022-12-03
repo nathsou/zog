@@ -1,7 +1,7 @@
 
-let print: 'T => () = raw { console.log }
-let iter: 'T[] => Iterator<'T> = raw { array => array[Symbol.iterator]() }
-let push: ('T[], 'T) => () = raw { (array, elem) => array.push(elem) }
+let print: a => () = raw { console.log }
+let iter: a[] => Iterator<a> = raw { array => array[Symbol.iterator]() }
+let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
 
 let isPrime = (sieve, n) => {
     for p in sieve->iter {

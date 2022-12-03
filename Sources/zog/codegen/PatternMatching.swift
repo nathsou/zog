@@ -34,7 +34,7 @@ enum PathKey {
 typealias Path = [PathKey]
 
 extension CoreExpr {
-    func at(path: Path, isSubject: Bool) -> CoreExpr {
+    func at(path: Path, env: TypeEnv) -> CoreExpr {
         var expr = self
         
         for key in path {
@@ -50,11 +50,12 @@ extension CoreExpr {
                 let index = key.asIndex()!
                 let (key, ty) = row.entries(sorted: true)[index]
                 expr = .RecordSelect(expr, field: key, ty: ty)
-            case let .enum_(row):
+            case let .const(name, _) where env.enums.keys.contains(name):
                 switch key {
                 case let .variant(variant):
-                    let ty = row.variantType(variant)!
-                    expr = .RecordSelect(expr, field: "value", ty: ty)
+                    if let ty = env.enums[name]!.variants.mapping[variant]! {
+                        expr = .RecordSelect(expr, field: "value", ty: ty)
+                    }
                 case .index(_):
                     expr = .RecordSelect(expr, field: "value", ty: ty)
                 }
@@ -71,7 +72,7 @@ enum Ctor: Hashable {
     case tuple
     case record
     case literal(Literal)
-    case variant(String)
+    case variant(enumName: String, variant: String)
 }
 
 enum SimplifiedPattern {
@@ -90,8 +91,8 @@ enum SimplifiedPattern {
 }
 
 extension CorePattern {
-    fileprivate func simplified(ty: Ty) -> SimplifiedPattern {
-        func aux(_ pat: CorePattern, _ ty: Ty) -> SimplifiedPattern {
+    fileprivate func simplified(ty: Ty, env: TypeEnv) throws -> SimplifiedPattern {
+        func aux(_ pat: CorePattern, _ ty: Ty) throws -> SimplifiedPattern {
             switch pat {
             case .any:
                 return .any
@@ -101,7 +102,10 @@ extension CorePattern {
                 return .const(.literal(lit), [])
             case .tuple(let args):
                 if case let .const("Tuple", tys) = ty.deref() {
-                    return .const(.tuple, args.enumerated().map({ (i, arg) in aux(arg, tys[i]) }))
+                    return .const(
+                        .tuple,
+                        try args.enumerated().map({ (i, arg) in try aux(arg, tys[i]) })
+                    )
                 } else {
                     fatalError("expected tuple pattern to be associated with a tuple type")
                 }
@@ -120,7 +124,7 @@ extension CorePattern {
                     for (field, fieldTy) in row.entries(sorted: true) {
                         if let pat = presentEntries[field] {
                             if let pat {
-                                subPatterns.append(aux(pat, fieldTy))
+                                subPatterns.append(try aux(pat, fieldTy))
                             } else {
                                 subPatterns.append(.variable(field))
                             }
@@ -133,21 +137,31 @@ extension CorePattern {
                 } else {
                     fatalError("expected record pattern to be associated with a record type")
                 }
-            case let .variant(name, pat):
-                if case let .enum_(row) = ty.deref() {
-                    let associatedTy = row.variantType(name)!
+            case let .variant(enumName, name, pat):
+                let enum_: Enum
+                if let enumName = enumName.ref {
+                    enum_ = env.enums[enumName]!.variants
+                } else {
+                    enum_ = try env.lookupEnumUnique(variants: [name])
+                }
+                
+                if let associatedTy = enum_.mapping[name] {
+                    let enumName = enum_.name
                     if let pat {
-                        return .const(.variant(name), [aux(pat, associatedTy)])
+                        return .const(
+                            .variant(enumName: enumName, variant: name),
+                            [try aux(pat, associatedTy!)]
+                        )
                     } else {
-                        return .const(.variant(name), [])
+                        return .const(.variant(enumName: enumName, variant: name), [])
                     }
                 } else {
-                    fatalError("expected variant pattern to be associated with an enum type")
+                    fatalError("expected variant pattern to be associated with an enum")
                 }
             }
         }
         
-        return aux(self, ty)
+        return try aux(self, ty)
     }
 
     func vars() -> [String:Path] {
@@ -173,7 +187,7 @@ extension CorePattern {
                         vars[field] = path + [.index(index)]
                     }
                 }
-            case .variant(let name, let pat):
+            case let .variant(_, name, pat):
                 if let pat {
                     aux(pat, path + [.variant(name)])
                 }
@@ -214,11 +228,6 @@ extension Ty {
                 ctor: "record",
                 args: row.entries(sorted: true).map({ (_, ty) in ty.simplified() })
             )
-        case let .enum_(row):
-            return SimplifiedTy(
-                ctor: "enum",
-                args: row.entries(sorted: true).map({ (_, ty) in ty.simplified() })
-            )
         }
     }
 }
@@ -247,13 +256,13 @@ enum DecisionTree: CustomStringConvertible {
         defaultCase: DecisionTree?
     )
     
-    static func from(exprTy: Ty, cases: [(CorePattern, CoreExpr)]) -> DecisionTree {
+    static func from(exprTy: Ty, cases: [(CorePattern, CoreExpr)], env: TypeEnv) throws -> DecisionTree {
         var clauseMatrix = ClauseMatrix.from(
             type: exprTy.simplified(),
-            cases: cases.map({ (p, a) in (p.simplified(ty: exprTy), a) })
+            cases: try cases.map({ (p, a) in (try p.simplified(ty: exprTy, env: env), a) })
         )
         
-        return clauseMatrix.compile()
+        return clauseMatrix.compile(env: env)
     }
     
     var description: String {
@@ -282,6 +291,7 @@ fileprivate struct ClauseMatrix {
     
     init(types: [SimplifiedTy], patterns: [Row], actions: [(rowIndex: Int, action: CoreExpr)]) {
         self.dims = (rows: patterns.count, cols: patterns.first?.count ?? 0)
+        assert(self.dims.cols == types.count)
         self.types = types
         self.patterns = patterns
         self.actions = actions
@@ -371,7 +381,7 @@ fileprivate struct ClauseMatrix {
         types.swapAt(j1, j2)
     }
     
-    mutating func compile() -> DecisionTree {
+    mutating func compile(env: TypeEnv) -> DecisionTree {
         func aux(matrix: inout ClauseMatrix, occurrences: inout [Path]) -> DecisionTree {
             if matrix.dims.rows == 0 {
                 return .fail
@@ -396,7 +406,19 @@ fileprivate struct ClauseMatrix {
             
             for (ctor, (arity: arity, rowIndex: rowIndex)) in hds {                
                 var o1 = (0..<arity).map({ i in occurrences[0] + [.index(i)] }) + occurrences[1...]
-                var S = matrix.specialized(ctor: ctor, args: matrix.types[0].args)
+                var args = [SimplifiedTy]()
+                if case let .variant(enumName, variantName) = ctor {
+                    let enums = env.enums[enumName]!
+                    if let associatedTy = enums.variants.mapping[variantName]! {
+                        args = [associatedTy.simplified()]
+                    } else {
+                        args = []
+                    }
+                } else {
+                    args = matrix.types[0].args
+                }
+                
+                var S = matrix.specialized(ctor: ctor, args: args)
                 let Ak = aux(matrix: &S, occurrences: &o1)
                 cases.append((ctor, rowIndex, Ak))
             }

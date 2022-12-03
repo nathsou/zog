@@ -25,7 +25,7 @@ public struct zog {
                     try core.forEach({ decl in try decl.infer(env, 0) })
                     print(comment(env), "\n")
                     
-                    let context = CoreContext(linear: false)
+                    let context = CoreContext(linear: false, env: env)
                     
                     for decl in core {
                         context.statements.append(contentsOf: try decl.codegen(context))

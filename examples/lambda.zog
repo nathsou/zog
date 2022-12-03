@@ -1,11 +1,15 @@
-let print: 'T => () = raw { console.log }
-type BinOp = enum { Add, Sub, Mul, Div, Equ }
-type Map = { get: str => 'A, set: (str, 'A) => (), has: str => bool }
+let print: a => () = raw { console.log }
+let raise: str => a = raw { msg => { throw new Error(msg); } }
+
+type Map = { get: str => a, set: (str, a) => (), has: str => bool }
 let createMap: () => Map = raw { () => new Map() }
 let clone: Map => Map = raw { map => new Map(map) }
-let raise: str => 'Never = raw { msg => { throw new Error(msg); } }
 
-type Expr = enum {
+type Env = Map
+
+enum BinOp { Add, Sub, Mul, Div, Equ }
+
+enum Expr {
     Num num
     Bool bool
     Var str
@@ -17,9 +21,7 @@ type Expr = enum {
     If { cond: Expr, ifTrue: Expr, ifFalse: Expr }
 }
 
-type Env = Map
-
-type Value = enum {
+enum Value {
     Num num
     Bool bool
     Closure { arg: str, body: Expr, env: Env }
@@ -27,8 +29,8 @@ type Value = enum {
 }
 
 let eval = (expr: Expr, env: Env): Value => match expr {
-    Num x => Num x
-    Bool q => Bool q
+    Expr.Num x => Value.Num x
+    Expr.Bool q => Value.Bool q
     Var v => if env.has(v) env.get(v) else raise("undeclared variable")
     Let { name, val, rhs } => {
         let bodyEnv = env->clone
@@ -37,19 +39,19 @@ let eval = (expr: Expr, env: Env): Value => match expr {
     }
     LetRec { name, arg, body, rhs } => {
         let bodyEnv = env->clone
-        bodyEnv.set(name, Value.RecClosure { name: name, arg: arg, body: body, env: env })
+        bodyEnv.set(name, RecClosure { name: name, arg: arg, body: body, env: env })
         rhs->eval(bodyEnv)
     }
     Bin { lhs, op, rhs } => match (lhs->eval(env), rhs->eval(env)) {
-        (Num a, Num b) => match op {
-            Add => Num a + b
-            Sub => Num a - b
-            Mul => Num a * b
-            Div => Num a / b
-            Equ => Bool a == b
+        (Value.Num a, Value.Num b) => match op {
+            Add => Value.Num a + b
+            Sub => Value.Num a - b
+            Mul => Value.Num a * b
+            Div => Value.Num a / b
+            Equ => Value.Bool a == b
         }
-        (Bool a, Bool b) => match op {
-            Equ => Bool a == b
+        (Value.Bool a, Value.Bool b) => match op {
+            Equ => Value.Bool a == b
         }
         _ => raise("invalid operands in binary expression")
     }
@@ -70,8 +72,9 @@ let eval = (expr: Expr, env: Env): Value => match expr {
     }
     If { cond, ifTrue, ifFalse } => {
         match cond->eval(env) {
-            Bool true => ifTrue->eval(env)
-            Bool false => ifFalse->eval(env)
+            Value.Bool true => ifTrue->eval(env)
+            Value.Bool false => ifFalse->eval(env)
+            _ => raise("expected if condition to be a bool")
         }
     }
 }
@@ -85,15 +88,15 @@ let fact = n => LetRec {
         lhs: Var "n",
         op: Mul,
         rhs: If {
-            cond: Bin { lhs: Var "n", op: Equ, rhs: Num 1 },
-            ifTrue: Num 1,
+            cond: Bin { lhs: Var "n", op: Equ, rhs: Expr.Num 1 },
+            ifTrue: Expr.Num 1,
             ifFalse: App {
                 lhs: Var "f",
-                arg: Bin { lhs: Var "n", op: Sub, rhs: Num 1 },
+                arg: Bin { lhs: Var "n", op: Sub, rhs: Expr.Num 1 },
             },
         },
     },
-    rhs: App { lhs: Var "f", arg: Num n },
+    rhs: App { lhs: Var "f", arg: Expr.Num n },
 }
 
-print(eval(fact(17), env))
+print(fact(17)->eval(env))

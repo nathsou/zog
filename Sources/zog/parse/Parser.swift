@@ -38,9 +38,13 @@ class Parser {
         return tokens[index - 1].token
     }
 
-    func check(_ token: Token, lookahead: Int = 0) -> Bool {
+    func check(_ tokens: Token..., lookahead: Int = 0) -> Bool {
         if let t = peek(lookahead) {
-            return t == token
+            for token in tokens {
+                if t == token {
+                    return true
+                }
+            }
         }
 
         return false
@@ -94,6 +98,15 @@ class Parser {
         throw ParserError.expectedUppercaseIdentifier
     }
 
+    func lowerIdentifier() throws -> String {
+        if case .identifier(let ident) = peek(), ident.first!.isLowercase {
+            advance()
+            return ident
+        }
+        
+        throw ParserError.expectedUppercaseIdentifier
+    }
+
     func attempt<T>(_ f: () throws -> T?) -> T? {
         let initialIndex = index
         let initialStatementIndex = statementStartIndex
@@ -138,16 +151,15 @@ class Parser {
         tyParamScopes.append([String:Ty]())
     }
     
-    func declareTyParam(_ name: String) -> Ty {
+    func declareTyParam(_ name: String) -> (ty: Ty, id: TyVarId) {
         if !tyParamScopes.isEmpty {
             let id = TyContext.freshTyVarId()
             let ty = Ty.variable(Ref(.unbound(id: id, level: generalizationLevel)))
             tyParamScopes[tyParamScopes.count - 1][name] = ty
-            return ty
+            return (ty, id)
         }
         
-        assertionFailure("no type parameter scope")
-        return .unit
+        fatalError("no type parameter scope")
     }
     
     func lookupTyParam(_ name: String) -> Ty? {
@@ -200,24 +212,58 @@ class Parser {
     
     func declaration() throws -> Decl {
         switch peek() {
-        case .identifier("type") where peek(2) == .symbol(.eq):
+        case .identifier("type") where check(.symbol(.eq), .symbol(.lss), lookahead: 2):
             advance()
-            return try typeAlias()
+            return try typeAliasDecl()
+        case .identifier("enum"):
+            advance()
+            return try enumDecl()
         default:
             return .Stmt(statement())
         }
     }
     
-        // typeAlias -> 'type' identifier '=' ty
-    func typeAlias() throws -> Decl {
-        let name = try identifier()
-        try consume(.symbol(.eq))
+    // typeAlias -> 'type' upperIdentifier '<' commas(loweIdentifier) '>' '=' ty
+    func typeAliasDecl() throws -> Decl {
+        let name = try upperIdentifier()
         pushTyParamScope()
+        var args = [TyVarId]()
+        if match(.symbol(.lss)) {
+            let names = try commas(lowerIdentifier)
+            for name in names {
+                args.append(declareTyParam(name).id)
+            }
+            try consume(.symbol(.gtr))
+        }
+        try consume(.symbol(.eq))
         let ty = try type()
         popTyParamScope()
         try consume(.symbol(.semicolon))
         
-        return .TypeAlias(name, ty)
+        return .TypeAlias(name: name, args: args, ty: ty)
+    }
+    
+    // enum -> 'enum' upperIdentifier '{' (identifier ty?)* '}'
+    func enumDecl() throws -> Decl {
+        let name = try upperIdentifier()
+        var variants = [(name: String, ty: Ty?)]()
+        
+        try consume(.symbol(.lcurlybracket))
+        
+        while case let .identifier(name) = peek() {
+            advance()
+            let ty = attempt(type)
+            variants.append((name, ty))
+            
+            if !match(.symbol(.semicolon), .symbol(.comma)) {
+                break
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        try consume(.symbol(.semicolon))
+        
+        return .Enum(name: name, args: [], variants: variants)
     }
     
     // ------ statements ------
@@ -881,15 +927,12 @@ class Parser {
         case .identifier("str"):
             advance()
             return .str
-        case .identifier("enum"):
-            advance()
-            return try enumType()
         case .identifier(let name) where name.first!.isUppercase:
             advance()
             return try constType(name: name)
-        case .symbol(.singlequote):
+        case .identifier(let name) where name.first!.isLowercase:
             advance()
-            return try typeParam()
+            return try typeParam(name: name)
         case .symbol(.lcurlybracket):
             advance()
             return try recordType()
@@ -936,27 +979,6 @@ class Parser {
         return .record(Row.from(entries: entries, tail: Ty.fresh(level: generalizationLevel)))
     }
     
-    // enum -> 'enum' '{' (identifier ty)* '}'
-    func enumType() throws -> Ty {
-        var variants = [(name: String, ty: Ty)]()
-        
-        try consume(.symbol(.lcurlybracket))
-        
-        while case let .identifier(name) = peek() {
-            advance()
-            let ty = attempt(type) ?? .unit
-            variants.append((name, ty))
-            
-            if !match(.symbol(.semicolon), .symbol(.comma)) {
-                break
-            }
-        }
-        
-        try consume(.symbol(.rcurlybracket))
-        
-        return .enum_(Row.from(variants: variants))
-    }
-    
     // var -> upperIdentifier ('<' commas(type) '>')?
     func constType(name: String) throws -> Ty {
         if match(.symbol(.lss)) {
@@ -968,15 +990,13 @@ class Parser {
         return .const(name, [])
     }
     
-    // param -> '\'' upperIdentifier
-    func typeParam() throws -> Ty {
-        let name = try upperIdentifier()
-        
+    // param -> lowerIdentifier
+    func typeParam(name: String) throws -> Ty {
         if let ty = lookupTyParam(name) {
             return ty
         }
         
-        return declareTyParam(name)
+        return declareTyParam(name).ty
     }
     
     // ------ patterns ------
@@ -1046,7 +1066,15 @@ class Parser {
     }
     
     func variantPattern(name: String) throws -> Pattern {
+        if match(.symbol(.dot)) {
+            let enumName = name
+            let variantName = try upperIdentifier()
+            let pat = attempt(pattern)
+            
+            return .variant(enumName: Ref(enumName), variant: variantName, pat)
+        }
+        
         let pat = attempt(pattern)
-        return .variant(name, pat)
+        return .variant(enumName: Ref(nil), variant: name, pat)
     }
 }

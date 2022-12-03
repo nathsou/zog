@@ -8,18 +8,20 @@
 import Foundation
 
 class CoreContext {
+    let env: TypeEnv
     let parent: CoreContext?
     var statements = [JSStmt]()
     var variables = Set<String>()
     let isLinear: Bool
     
-    init(parent: CoreContext? = nil, linear: Bool) {
+    init(parent: CoreContext? = nil, linear: Bool, env: TypeEnv) {
         self.parent = parent
         self.isLinear = linear
+        self.env = env
     }
     
     func child(linear: Bool) -> CoreContext {
-        return .init(parent: self, linear: linear)
+        return .init(parent: self, linear: linear, env: env)
     }
     
     private func countVars(name: String) -> Int {
@@ -123,9 +125,10 @@ extension CoreExpr {
         case let .Raw(js, _):
             return .raw(js)
         case let .Match(expr, cases, ty):
-            let dt = DecisionTree.from(
+            let dt = try DecisionTree.from(
                 exprTy: expr.ty,
-                cases: cases
+                cases: cases,
+                env: ctx.env
             )
             
             if case .Var(_, _) = expr {
@@ -181,20 +184,16 @@ extension CoreExpr {
                 
                 return result
             }
-        case let .Variant(_, variantName, val, ty):
-            if case .enum_(_) = ty.deref() {
-                let tag = JSExpr.string(variantName)
-                
-                if let val {
-                    return .object([
-                        ("variant", tag),
-                        ("value", try val.codegen(ctx))
-                    ])
-                } else {
-                    return .object([("variant", tag)])
-                }
+        case let .Variant(_, variantName, val, _):
+            let tag = JSExpr.string(variantName)
+            
+            if let val {
+                return .object([
+                    ("variant", tag),
+                    ("value", try val.codegen(ctx))
+                ])
             } else {
-                fatalError("unresolved enum type in variant expression")
+                return .object([("variant", tag)])
             }
         }
     }
@@ -254,7 +253,9 @@ extension CoreDecl {
         switch self {
         case let .Stmt(stmt):
             return [try stmt.codegen(ctx)]
-        case .TypeAlias(_, _):
+        case .TypeAlias(_, _, _):
+            return []
+        case .Enum(_, _, _):
             return []
         }
     }
@@ -267,7 +268,7 @@ extension CorePattern {
             return .variable(ctx.declare("_"))
         case let .variable(name):
             return .variable(ctx.declare(name))
-        case .literal(_), .variant(_, _):
+        case .literal(_), .variant(_, _, _):
             fatalError("pattern is not infallible")
         case let .tuple(patterns):
             return .array(try patterns.map({ try $0.codegen(ctx) }))
@@ -311,14 +312,14 @@ extension DecisionTree {
                             mut: false,
                             pat: .variable(ctx.declare(name)),
                             ty: nil,
-                            val: subject.at(path: path, isSubject: false)
+                            val: subject.at(path: path, env: ctx.env)
                         )
                     }),
                     ret: action,
                     ty: returnTy
                 )
             case let .switch_(path, cases, defaultCase):
-                var proj = subject.at(path: path, isSubject: true)
+                var proj = subject.at(path: path, env: ctx.env)
                 var tests = [(CoreExpr, CoreExpr)]()
                 var isEnum = false
                 
@@ -329,7 +330,7 @@ extension DecisionTree {
                             .Literal(lit, ty: lit.ty),
                             aux(dt, subject: subject)
                         ))
-                    case let .variant(tag):
+                    case let .variant(_, tag):
                         isEnum = true
                         tests.append((
                             .Literal(.str(tag), ty: .str),

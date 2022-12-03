@@ -230,14 +230,35 @@ enum Stmt: CustomStringConvertible {
 
 enum Decl: CustomStringConvertible {
     case Stmt(Stmt)
-    case TypeAlias(String, Ty)
+    case TypeAlias(name: String, args: [TyVarId], ty: Ty)
+    case Enum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     
     var description: String {
         switch self {
         case let .Stmt(stmt):
             return "\(stmt)"
-        case let .TypeAlias(name, ty):
+        case let .TypeAlias(name, [], ty):
             return "type \(name) = \(ty)"
+        case let .TypeAlias(name, args, ty):
+            let argsFmt = args
+                .map({ TyVar.showTyVarId($0).lowercased() })
+                .joined(separator: ", ")
+            
+            return "type \(name)<\(argsFmt)> = \(ty)"
+        case let .Enum(name, args, variants):
+            let variantsFmt = variants
+                .map({ (name, ty) in ty != nil ? "\(name) \(ty!)" : name })
+                .joined(separator: "\n")
+            
+            if args.isEmpty {
+                return "enum \(name) {\n\(variantsFmt)\n}"
+            }
+            
+            let argsFmt = args
+                .map({ TyVar.showTyVarId($0).lowercased() })
+                .joined(separator: ", ")
+            
+            return "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
         }
     }
 }
@@ -248,7 +269,7 @@ enum Pattern: CustomStringConvertible {
     case literal(Literal)
     indirect case tuple([Pattern])
     indirect case record([(String, Pattern?)])
-    indirect case variant(String, Pattern?)
+    indirect case variant(enumName: Ref<String?>, variant: String, Pattern?)
     
     public var description: String {
         switch self {
@@ -262,7 +283,7 @@ enum Pattern: CustomStringConvertible {
             return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", ")))"
         case let .record(entries):
             return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
-        case let .variant(name, pat):
+        case let .variant(_, name, pat):
             if let pat {
                 return "\(name) \(pat)"
             } else {

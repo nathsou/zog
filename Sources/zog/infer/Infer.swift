@@ -36,7 +36,7 @@ extension CoreExpr {
             
             for (pat, ann) in args {
                 try pat.checkIfInfallible()
-                let (ty, vars) = pat.ty(level: level)
+                let (ty, vars) = try pat.ty(level: level, env: env)
                 argsInfo.append((pat, ty, vars, ann))
             }
             
@@ -174,7 +174,7 @@ extension CoreExpr {
             let exprTy = try expr.infer(env, level)
             
             for (pat, body) in cases {
-                let (patTy, vars) = pat.ty(level: level)
+                let (patTy, vars) = try pat.ty(level: level, env: env)
                 let bodyEnv = env.child()
                 for (name, ty) in vars {
                     try bodyEnv.declare(name, ty: ty)
@@ -206,18 +206,19 @@ extension CoreExpr {
             }
             
             tau = ty
-        case let .Variant(typeName, variantName, val, ty):
-            if let typeName {
-                try env.unify(try env.lookupAlias(name: typeName), ty)
+        case let .Variant(enumName, variantName, val, ty):
+            let enum_: Enum
+            if let enumName {
+                enum_ = env.enums[enumName]!.variants
+            } else {
+                enum_ = try env.lookupEnumUnique(variants: [variantName])
             }
             
+            let enumTy = Ty.const(enum_.name, [])
+            let associatedTy = enum_.mapping[variantName]! ?? .unit
             let valTy = try val?.infer(env, level) ?? .unit
-            let tail = Ty.fresh(level: level)
-            let partialEnumTy = Ty.enum_(
-                Row.from(variants: [(variantName, valTy)], tail: tail)
-            )
-            
-            try env.unify(partialEnumTy, ty)
+            try env.unify(valTy, associatedTy)
+            try env.unify(enumTy, ty)
             tau = ty
         }
         
@@ -235,7 +236,7 @@ extension CoreStmt {
             _ = try expr.infer(env, level)
         case let .Let(isMut, pat, ann, val):
             try pat.checkIfInfallible()
-            let (patternTy, patternVars) = pat.ty(level: level + 1)
+            let (patternTy, patternVars) = try pat.ty(level: level + 1, env: env)
             let rhsEnv = env.child()
             
             for (variable, ty) in patternVars {
@@ -262,7 +263,7 @@ extension CoreStmt {
             let iterItemTy = Ty.fresh(level: level)
             try env.unify(iterTy, .iterator(iterItemTy))
             let bodyEnv = env.child()
-            let (patternTy, patternVars) = pat.ty(level: level)
+            let (patternTy, patternVars) = try pat.ty(level: level, env: env)
             try env.unify(patternTy, iterItemTy)
             
             for (name, ty) in patternVars {
@@ -323,8 +324,10 @@ extension CoreDecl {
         switch self {
         case let .Stmt(stmt):
             try stmt.infer(env, level)
-        case let .TypeAlias(name, ty):
-            env.declareAlias(name: name, ty: ty)
+        case let .TypeAlias(name, args, ty):
+            env.declareAlias(name: name, args: args, ty: ty)
+        case let .Enum(name, args, variants):
+            env.declareEnum(name: name, args: args, variants: variants)
         }
     }
 }

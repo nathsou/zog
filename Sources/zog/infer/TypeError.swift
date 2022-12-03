@@ -19,6 +19,8 @@ enum TypeError: Error, CustomStringConvertible {
     case expectedRecordType(Ty)
     case patternDestructuringCanFail(CorePattern)
     case couldNotResolveType(Ty)
+    case noEnumMatchesVariants(variants: [String])
+    case ambiguousEnumForVariants(variants: [String], candidates: [String])
 
     public var description: String {
         switch self {
@@ -51,6 +53,10 @@ enum TypeError: Error, CustomStringConvertible {
             return "Cannot use '\(pattern)' as a destructuring pattern since it can fail"
         case let .couldNotResolveType(ty):
             return "Could not resolve type '\(ty)'"
+        case let .noEnumMatchesVariants(variants):
+            return "No enum matches variants: '\(variants.joined(separator: ", "))'"
+        case let .ambiguousEnumForVariants(variants, candidates):
+            return "Variants [\(variants.joined(separator: ", "))] are present in multiple enums: [\(candidates.joined(separator: ", "))]"
         }
     }
 }
