@@ -10,13 +10,12 @@ import XCTest
 @testable import zog
 
 final class inferenceTests: XCTestCase {
-    func infer(_ source: String) throws -> Ty {
+    func infer(_ source: String, env: TypeEnv = TypeEnv()) throws -> Ty {
         var lexer = Lexer.init(source: source)
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
         parser.pushTyParamScope()
         let expr = try parser.expression().core(0)
-        let env = TypeEnv()
         return try expr.infer(env, 0)
     }
     
@@ -35,7 +34,7 @@ final class inferenceTests: XCTestCase {
         return env
     }
     
-    func testInferPrimitive() throws {
+    func testInferPrimitiveTy() throws {
         XCTAssertEqual(try infer("3"), .num)
         XCTAssertEqual(try infer("3.14"), .num)
         XCTAssertEqual(try infer("(0)"), .num)
@@ -45,7 +44,7 @@ final class inferenceTests: XCTestCase {
         XCTAssertEqual(try infer("()"), .unit)
     }
     
-    func testInferTuple() throws {
+    func testInferTupleTy() throws {
         XCTAssertEqual(try infer("(1, 2, 3)"), .tuple([.num, .num, .num]))
         XCTAssertEqual(try infer("(true, \"zog\", 24, ())"), .tuple([.bool, .str, .num, .unit]))
         XCTAssertEqual(
@@ -54,7 +53,7 @@ final class inferenceTests: XCTestCase {
         )
     }
     
-    func testInferMathExpr() throws {
+    func testInferBinOpTy() throws {
         XCTAssertEqual(try infer("3 + 7"), .num)
         XCTAssertEqual(try infer("3 - 7"), .num)
         XCTAssertEqual(try infer("3 * 7"), .num)
@@ -69,14 +68,16 @@ final class inferenceTests: XCTestCase {
         XCTAssertEqual(try infer("3 != 7"), .bool)
     }
     
-    func testInferFun() throws {
+    func testInferFunTy() throws {
         XCTAssertEqual(try infer("x => x").canonical, "A => A")
         XCTAssertEqual(try infer("_ => 1").canonical, "A => num")
+        XCTAssertEqual(try infer("(a, b) => a == b").canonical, "(A, A) => bool")
+        XCTAssertEqual(try infer("(a, b) => a != b").canonical, "(A, A) => bool")
         XCTAssertEqual(try infer("(a, b) => a + b").canonical, "(num, num) => num")
         XCTAssertEqual(try infer("(a, b) => a < b").canonical, "(num, num) => bool")
         XCTAssertEqual(
             try infer("((a, (b, c))) => { k: a == b and c }").canonical,
-            "((num, (num, bool))) => { k: bool }"
+            "((A, (A, bool))) => { k: bool }"
         )
     }
     
@@ -87,7 +88,7 @@ final class inferenceTests: XCTestCase {
             "let b = id(\"yo!\")"
         ])
         
-        XCTAssertEqual(env1.vars["id"]?.canonical, "'A => 'A")
+        XCTAssertEqual(env1.vars["id"]?.canonical, "a => a")
         XCTAssertEqual(env1.vars["a"], .num)
         XCTAssertEqual(env1.vars["b"], .str)
         
@@ -95,17 +96,58 @@ final class inferenceTests: XCTestCase {
             "let fst = ((a, _)) => a",
         ])
         
-        XCTAssertEqual(env2.vars["fst"]?.canonical, "(('A, 'B)) => 'A")
+        XCTAssertEqual(env2.vars["fst"]?.canonical, "((a, b)) => a")
     }
     
     func testInferArrayTy() throws {
         let env1 = try infer(statements: ["let a1 = []", "mut a2 = []"])
-        XCTAssertEqual(env1.vars["a1"]?.canonical, "'A[]")
+        XCTAssertEqual(env1.vars["a1"]?.canonical, "a[]")
         XCTAssertEqual(env1.vars["a2"]?.canonical, "A[]")
         
         let env2 = try infer(statements: ["let array = [1, 2, 3]"])
         XCTAssertEqual(env2.vars["array"]?.canonical, "num[]")
         
         XCTAssertThrowsError(try infer(statements: ["let array = [1, true, ()]"]))
+    }
+    
+    func testInferRecordTy() throws {
+        XCTAssertEqual(try infer("{}"), .record(.empty))
+        XCTAssertEqual(
+            try infer("{ a: 1, b: true, c: \"zog\" }"),
+            .record(Row.from(entries: [("a", .num), ("b", .bool), ("c", .str)]))
+        )
+        XCTAssertEqual(
+            try infer("{ val: { lhs: 1, rhs: 2 } }"),
+            .record(Row.from(
+                entries: [("val",.record(Row.from(entries: [("lhs", .num), ("rhs", .num)])))]
+            ))
+        )
+    }
+    
+    func testInferVariantTy() throws {
+        let env1 = try infer(statements: [
+            "enum BinaryOp { Plus, Minus }",
+            "let a = Plus"
+        ])
+        
+        XCTAssertEqual(env1.vars["a"], .const("BinaryOp", []))
+        
+        let env2 = try infer(statements: [
+            "enum List { Nil, Cons (num, List) }",
+            "let list = Cons (1, Cons (2, Cons (3, Nil)))"
+        ])
+        
+        XCTAssertEqual(env2.vars["list"]?.canonical, "List")
+        
+        let env3 = try infer(statements: [
+            "enum BinaryOp { Plus, Minus }",
+            "enum UnaryOp { Bang, Minus }",
+        ])
+        
+        XCTAssertEqual(try infer(".Plus", env: env3).canonical, "BinaryOp")
+        XCTAssertEqual(try infer(".Bang", env: env3).canonical, "UnaryOp")
+        XCTAssertEqual(try infer("BinaryOp.Minus", env: env3).canonical, "BinaryOp")
+        XCTAssertEqual(try infer("UnaryOp.Minus", env: env3).canonical, "UnaryOp")
+        XCTAssertThrowsError(try infer(".Minus", env: env3))
     }
 }

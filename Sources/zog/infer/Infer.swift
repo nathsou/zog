@@ -16,8 +16,12 @@ extension CorePattern {
 }
 
 extension CoreExpr {
-    func infer(_ env: TypeEnv, _ level: UInt) throws -> Ty {
+    func infer(_ env: TypeEnv, _ level: UInt, expectedTy: Ty? = nil) throws -> Ty {
         let tau: Ty
+        
+        if let expectedTy {
+            try env.unify(self.ty, expectedTy)
+        }
         
         switch self {
         case let .Literal(lit, _):
@@ -36,7 +40,7 @@ extension CoreExpr {
             
             for (pat, ann) in args {
                 try pat.checkIfInfallible()
-                let (ty, vars) = try pat.ty(level: level, env: env)
+                let (ty, vars) = try pat.ty(level: level, env: env, expectedTy: ann)
                 argsInfo.append((pat, ty, vars, ann))
             }
             
@@ -55,7 +59,7 @@ extension CoreExpr {
             let innerRetTy = retTyAnn ?? .fresh(level: level)
             let retTy = isIterator ? Ty.iterator(innerRetTy) : innerRetTy
             TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
-            var actualRetTy = try body.infer(bodyEnv, level)
+            var actualRetTy = try body.infer(bodyEnv, level, expectedTy: retTyAnn)
             if isIterator {
                 actualRetTy = .iterator(.fresh(level: level))
                 try env.unify(retTy, actualRetTy)
@@ -76,8 +80,7 @@ extension CoreExpr {
             let condTy = try cond.infer(env, level)
             try env.unify(condTy, .bool)
             let thenTy = try thenExpr.infer(env, level)
-            let elseTy = try elseExpr.infer(env, level)
-            try env.unify(thenTy, elseTy)
+            _ = try elseExpr.infer(env, level, expectedTy: thenTy)
             tau = thenTy
         case let .UnaryOp(op, expr, _):
             let exprTy = try expr.infer(env, level)
@@ -98,7 +101,10 @@ extension CoreExpr {
             case .add, .sub, .mul, .div, .mod, .pow:
                 argTy = .num
                 retTy = .num
-            case .equ, .neq, .gtr, .geq, .lss, .leq:
+            case .lss, .gtr, .leq, .geq:
+                argTy = .num
+                retTy = .bool
+            case .equ, .neq:
                 argTy = Ty.fresh(level: level)
                 retTy = .bool
             case .and, .or:
@@ -127,28 +133,32 @@ extension CoreExpr {
             let blockEnv = env.child()
             
             for stmt in stmts {
-                try stmt.infer(blockEnv, level)
-                
                 if case let .Return(expr) = stmt, expr != nil {
                     try env.unify(expr!.ty, ty)
                 }
+                
+                try stmt.infer(blockEnv, level)
             }
             
             if let ret {
-                let retTy = try ret.infer(blockEnv, level)
-                try env.unify(retTy, ty)
+                _ = try ret.infer(blockEnv, level, expectedTy: ty)
             }
             
             tau = ty
-        case let .Tuple(elems, _):
-            let elemTys = try elems.map({ elem in try elem.infer(env, level) })
-            tau = .tuple(elemTys)
+        case let .Tuple(elems, ty):
+            let tupleTy = Ty.tuple(elems.map({ $0.ty }))
+            try env.unify(tupleTy, ty)
+            
+            for elem in elems {
+                _ = try elem.infer(env, level)
+            }
+            
+            tau = tupleTy
         case let .Array(elems, _):
             let elemTy = Ty.fresh(level: level)
             
             for elem in elems {
-                let ty = try elem.infer(env, level)
-                try env.unify(ty, elemTy)
+                _ = try elem.infer(env, level, expectedTy: elemTy)
             }
             
             tau = .array(elemTy)
@@ -156,17 +166,21 @@ extension CoreExpr {
             let itemTy = Ty.fresh(level: level)
             let arrayTy = try elems.infer(env, level)
             try env.unify(arrayTy, .array(itemTy))
-            let indexTy = try index.infer(env, level)
-            try env.unify(indexTy, .num)
+            _ = try index.infer(env, level, expectedTy: .num)
             tau = itemTy
-        case let .Record(entries, _):
-            let fields = try entries.map({ (field, val) in (field, try val.infer(env, level)) })
-            tau = .record(Row.from(entries: fields))
+        case let .Record(entries, ty):
+            let recordTy = Ty.record(Row.from(entries: entries.map({ ($0.0, $0.1.ty) })))
+            try env.unify(ty, recordTy)
+            
+            for (_, val) in entries {
+                _ = try val.infer(env, level)
+            }
+            
+            tau = recordTy
         case let .RecordSelect(record, field, fieldTy):
             let tail = Ty.fresh(level: level)
             let partialRecordTy = Ty.record(Row.extend(field: field, ty: fieldTy, tail: tail))
-            let recordTy = try record.infer(env, level)
-            try env.unify(recordTy, partialRecordTy)
+            _ = try record.infer(env, level, expectedTy: partialRecordTy)
             tau = fieldTy
         case let .Raw(_, ty):
             tau = ty
@@ -174,15 +188,14 @@ extension CoreExpr {
             let exprTy = try expr.infer(env, level)
             
             for (pat, body) in cases {
-                let (patTy, vars) = try pat.ty(level: level, env: env)
+                let (patTy, vars) = try pat.ty(level: level, env: env, expectedTy: exprTy)
                 let bodyEnv = env.child()
                 for (name, ty) in vars {
                     try bodyEnv.declare(name, ty: ty)
                 }
                 
                 try env.unify(patTy, exprTy)
-                let bodyTy = try body.infer(bodyEnv, level)
-                try env.unify(bodyTy, ty)
+                _ = try body.infer(bodyEnv, level, expectedTy: ty)
             }
             
             if cases.isEmpty {
@@ -211,13 +224,16 @@ extension CoreExpr {
             if let enumName {
                 enum_ = env.enums[enumName]!.variants
             } else {
-                enum_ = try env.lookupEnumUnique(variants: [variantName])
+                if case let .const(enumName, _) = ty.deref() {
+                    enum_ = env.enums[enumName]!.variants
+                } else {
+                    enum_ = try env.lookupEnumUnique(variants: [variantName])
+                }
             }
             
             let enumTy = Ty.const(enum_.name, [])
             let associatedTy = enum_.mapping[variantName]! ?? .unit
-            let valTy = try val?.infer(env, level) ?? .unit
-            try env.unify(valTy, associatedTy)
+            _ = try val?.infer(env, level, expectedTy: associatedTy) ?? .unit
             try env.unify(enumTy, ty)
             tau = ty
         }
@@ -236,7 +252,7 @@ extension CoreStmt {
             _ = try expr.infer(env, level)
         case let .Let(isMut, pat, ann, val):
             try pat.checkIfInfallible()
-            let (patternTy, patternVars) = try pat.ty(level: level + 1, env: env)
+            let (patternTy, patternVars) = try pat.ty(level: level + 1, env: env, expectedTy: ann)
             let rhsEnv = env.child()
             
             for (variable, ty) in patternVars {
@@ -263,7 +279,11 @@ extension CoreStmt {
             let iterItemTy = Ty.fresh(level: level)
             try env.unify(iterTy, .iterator(iterItemTy))
             let bodyEnv = env.child()
-            let (patternTy, patternVars) = try pat.ty(level: level, env: env)
+            let (patternTy, patternVars) = try pat.ty(
+                level: level,
+                env: env,
+                expectedTy: iterItemTy
+            )
             try env.unify(patternTy, iterItemTy)
             
             for (name, ty) in patternVars {

@@ -191,10 +191,10 @@ enum CorePattern: CustomStringConvertible {
     indirect case record([(field: String, pattern: CorePattern?)])
     indirect case variant(enumName: Ref<String?>, variant: String, CorePattern?)
     
-    func ty(level: UInt, env: TypeEnv) throws -> (ty: Ty, vars: [String:Ty]) {
+    func ty(level: UInt, env: TypeEnv, expectedTy: Ty? = nil) throws -> (ty: Ty, vars: [String:Ty]) {
         var vars = [String:Ty]()
         
-        func go(_ pat: CorePattern) throws -> Ty {
+        func go(_ pat: CorePattern, _ ann: Ty?) throws -> Ty {
             switch pat {
             case .any:
                 return .fresh(level: level)
@@ -209,39 +209,56 @@ enum CorePattern: CustomStringConvertible {
             case let .literal(lit):
                 return lit.ty
             case let .tuple(patterns):
-                return .tuple(try patterns.map(go))
+                var elemTys: [Ty?]
+                
+                if case let .const("Tuple", tys) = ann?.deref() {
+                    elemTys = tys
+                } else {
+                    elemTys = patterns.map({ _ in nil })
+                }
+                
+                return .tuple(try zip(patterns, elemTys).map({ (pat, ty) in try go(pat, ty)}))
             case let .record(entries):
                 var rowEntries = [(String, Ty)]()
+                let fieldTys: [String:Ty]
+                if case let .record(row) = ann?.deref() {
+                    fieldTys = row.asDictionary()
+                } else {
+                    fieldTys = [:]
+                }
                 
-                for (key, pat) in entries {
+                for (field, pat) in entries {
                     let ty: Ty
                     if let pat {
-                        ty = try go(pat)
+                        ty = try go(pat, fieldTys[field])
                     } else {
-                        ty = Ty.fresh(level: level)
-                        vars[key] = ty
+                        ty = fieldTys[field] ?? Ty.fresh(level: level)
+                        vars[field] = ty
                     }
                     
-                    rowEntries.append((key, ty))
+                    rowEntries.append((field, ty))
                 }
                 
                 return .record(Row.from(entries: rowEntries, tail: .fresh(level: level)))
-            case let .variant(enumName, name, pat):
-                _ = try pat.map(go)
+            case let .variant(enumName, variantName, pat):
+                if enumName.ref == nil, case let .const(actualEnumName, _) = ann?.deref() {
+                    enumName.ref = actualEnumName
+                }
                 
                 let enum_: Enum
-                
                 if let enumName = enumName.ref {
                     enum_ = env.enums[enumName]!.variants
                 } else {
-                    enum_ = try env.lookupEnumUnique(variants: [name])
+                    enum_ = try env.lookupEnumUnique(variants: [variantName])
                 }
+                
+                _ = try pat.map({ try go($0, enum_.mapping[variantName]!) })
                 
                 return .const(enum_.name, [])
             }
         }
         
-        return (try go(self), vars)
+        return (try go(self, expectedTy), vars)
     }
     
     func isInfallible() -> Bool {
