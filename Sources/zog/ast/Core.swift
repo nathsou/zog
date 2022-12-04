@@ -7,6 +7,22 @@
 
 import Foundation
 
+class RewritingContext {
+    var rules = [String:(args: [String], rhs: Expr)]()
+    
+    func declareRule(name: String, args: [String], rhs: Expr) {
+        rules[name] = (args, rhs)
+    }
+    
+    func lookupRule(_ name: String) -> (args: [String], rhs: Expr)? {
+        return rules[name]
+    }
+    
+    func containsRule(_ name: String) -> Bool {
+        return rules.keys.contains(name)
+    }
+}
+
 indirect enum CoreExpr {
     case Literal(Literal, ty: Ty)
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
@@ -16,7 +32,7 @@ indirect enum CoreExpr {
     case Fun(args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, isIterator: Bool, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
-    case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr, ty: Ty)
+    case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr?, ty: Ty)
     case Assignment(CoreExpr, AssignmentOperator, CoreExpr, ty: Ty)
     case Tuple([CoreExpr], ty: Ty)
     case Array([CoreExpr], ty: Ty)
@@ -56,18 +72,18 @@ indirect enum CoreExpr {
 }
 
 extension Expr {
-    public func core(_ lvl: UInt) -> CoreExpr {
+    public func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreExpr {
         let ty = { Ty.fresh(level: lvl) }
         
         switch self {
         case let .Literal(lit):
             return .Literal(lit, ty: ty())
         case let .UnaryOp(op, expr):
-            return .UnaryOp(op, expr.core(lvl), ty: ty());
+            return .UnaryOp(op, expr.core(ctx, lvl), ty: ty());
         case let .BinaryOp(lhs, op, rhs):
-            return .BinaryOp(lhs.core(lvl), op, rhs.core(lvl), ty: ty())
+            return .BinaryOp(lhs.core(ctx, lvl), op, rhs.core(ctx, lvl), ty: ty())
         case let .Parens(expr):
-            let coreExpr = expr.core(lvl)
+            let coreExpr = expr.core(ctx, lvl)
             return .Parens(coreExpr, ty: coreExpr.ty)
         case let .Var(name):
             return .Var(name, ty: ty())
@@ -75,50 +91,59 @@ extension Expr {
             return .Fun(
                 args: args.map({ (pat, ty) in (pat.core(), ty) }),
                 retTy: retTy,
-                body: body.core(lvl),
+                body: body.core(ctx, lvl),
                 isIterator: isIterator,
                 ty: ty()
             )
+        case let .Call(f: .Var(ruleName), args) where ctx.containsRule(ruleName):
+            let (argNames, rhs) = ctx.lookupRule(ruleName)!
+            let subst = Dictionary(uniqueKeysWithValues: zip(argNames, args))
+            return rhs.substitute(mapping: subst).core(ctx, lvl)
         case let .Call(f, args):
-            return .Call(f: f.core(lvl), args: args.map({ $0.core(lvl) }), ty: ty())
+            return .Call(f: f.core(ctx, lvl), args: args.map({ $0.core(ctx, lvl) }), ty: ty())
         case let .Block(stmts, ret):
-            return .Block(stmts.map({ $0.core(lvl) }), ret: ret.map({ $0.core(lvl) }), ty: ty())
+            return .Block(stmts.map({ $0.core(ctx, lvl) }), ret: ret.map({ $0.core(ctx, lvl) }), ty: ty())
         case let .If(cond, thenExpr, elseExpr):
-            return .If(cond: cond.core(lvl), thenExpr: thenExpr.core(lvl), elseExpr: elseExpr.core(lvl), ty: ty())
+            return .If(
+                cond: cond.core(ctx, lvl),
+                thenExpr: thenExpr.core(ctx, lvl),
+                elseExpr: elseExpr.map({ $0.core(ctx, lvl) }),
+                ty: ty()
+            )
         case let .Assignment(lhs, op, rhs):
-            return .Assignment(lhs.core(lvl), op, rhs.core(lvl), ty: ty())
+            return .Assignment(lhs.core(ctx, lvl), op, rhs.core(ctx, lvl), ty: ty())
         case let .Tuple(elems):
-            return .Tuple(elems.map({ $0.core(lvl) }), ty: ty())
+            return .Tuple(elems.map({ $0.core(ctx, lvl) }), ty: ty())
         case let .UseIn(pat, ty, val, rhs):
-            return Expr.Block([.Let(mut: false, pat: pat, ty: ty, val: val)], ret: rhs).core(lvl)
+            return Expr.Block([.Let(mut: false, pat: pat, ty: ty, val: val)], ret: rhs).core(ctx, lvl)
         case let .Array(elems):
-            return .Array(elems.map({ $0.core(lvl) }), ty: ty())
+            return .Array(elems.map({ $0.core(ctx, lvl) }), ty: ty())
         case let .Record(fields):
-            return .Record(fields.map({ (field, val) in (field, val.core(lvl)) }), ty: ty())
+            return .Record(fields.map({ (field, val) in (field, val.core(ctx, lvl)) }), ty: ty())
         case let .RecordSelect(record, field):
-            return .RecordSelect(record.core(lvl), field: field, ty: ty())
+            return .RecordSelect(record.core(ctx, lvl), field: field, ty: ty())
         case let .Pipeline(arg1, f, remArgs):
             var args = [arg1]
             args.append(contentsOf: remArgs)
             
-            return Expr.Call(f: .Var(f), args: args).core(lvl)
+            return Expr.Call(f: .Var(f), args: args).core(ctx, lvl)
         case let .Raw(js):
             return .Raw(js: js, ty: ty())
         case let .Match(expr, cases):
             return .Match(
-                expr.core(lvl),
-                cases: cases.map({ (pat, body) in (pat.core(), body.core(lvl)) }),
+                expr.core(ctx, lvl),
+                cases: cases.map({ (pat, body) in (pat.core(), body.core(ctx, lvl)) }),
                 ty: ty()
             )
         case let .Variant(enumName, variantName, val):
             return .Variant(
                 enumName: Ref(enumName),
                 variantName: variantName,
-                val: val.map({ $0.core(lvl) }),
+                val: val.map({ $0.core(ctx, lvl) }),
                 ty: ty()
             )
         case let .BuiltInCall(name, args):
-            return .BuiltInCall(name, args.map({ arg in arg.core(lvl) }), ty: ty())
+            return .BuiltInCall(name, args.map({ arg in arg.core(ctx, lvl) }), ty: ty())
         }
     }
 }
@@ -135,34 +160,28 @@ enum CoreStmt {
 }
 
 extension Stmt {
-    func core(_ lvl: UInt) -> CoreStmt {
+    func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreStmt {
         switch self {
         case let .Expr(expr):
-            return .Expr(expr.core(lvl))
+            return .Expr(expr.core(ctx, lvl))
         case let .Let(mut, pat, ty, val):
-            return .Let(mut: mut, pat: pat.core(), ty: ty, val: val.core(lvl + 1))
+            return .Let(mut: mut, pat: pat.core(), ty: ty, val: val.core(ctx, lvl + 1))
         case let .While(cond, body):
-            return .While(cond: cond.core(lvl), body: body.map({ $0.core(lvl) }))
+            return .While(cond: cond.core(ctx, lvl), body: body.map({ $0.core(ctx, lvl) }))
         case let .For(pat, iterator, body):
             return .For(
                 pat: pat.core(),
-                iterator: iterator.core(lvl),
-                body: body.map({ $0.core(lvl) })
-            )
-        case let .If(cond, then, else_):
-            return .If(
-                cond: cond.core(lvl),
-                then: then.map({ $0.core(lvl) }),
-                else_: else_?.map({ $0.core(lvl) })
+                iterator: iterator.core(ctx, lvl),
+                body: body.map({ $0.core(ctx, lvl) })
             )
         case let .Return(expr):
-            return .Return(expr.map({ $0.core(lvl) }))
+            return .Return(expr.map({ $0.core(ctx, lvl) }))
         case let .Yield(expr):
-            return .Yield(expr.core(lvl))
+            return .Yield(expr.core(ctx, lvl))
         case .Break:
             return .Break
         case .Error(_, _):
-            assertionFailure("Unexpected Error statement in CoreStmt.from")
+            assertionFailure("Unexpected Error statement in Stmt.core")
             return .Break
         }
     }
@@ -175,14 +194,17 @@ enum CoreDecl {
 }
 
 extension Decl {
-    func core(_ lvl: UInt) -> CoreDecl {
+    func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreDecl? {
         switch self {
         case let .Stmt(stmt):
-            return .Stmt(stmt.core(lvl))
+            return .Stmt(stmt.core(ctx, lvl))
         case let .TypeAlias(name, args, ty):
             return .TypeAlias(name: name, args: args, ty: ty)
         case let .Enum(name, args, variants):
             return .Enum(name: name, args: args, variants: variants)
+        case let .Rewrite(name, args, rhs):
+            ctx.declareRule(name: name, args: args, rhs: rhs)
+            return nil
         }
     }
 }

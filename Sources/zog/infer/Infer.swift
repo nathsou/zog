@@ -80,8 +80,12 @@ extension CoreExpr {
             let condTy = try cond.infer(env, level)
             try env.unify(condTy, .bool)
             let thenTy = try thenExpr.infer(env, level)
-            _ = try elseExpr.infer(env, level, expectedTy: thenTy)
-            tau = thenTy
+            
+            if let elseExpr {
+                _ = try elseExpr.infer(env, level, expectedTy: thenTy)
+            }
+            
+            tau = elseExpr == nil ? .unit : thenTy
         case let .UnaryOp(op, expr, _):
             let exprTy = try expr.infer(env, level)
             
@@ -110,6 +114,9 @@ extension CoreExpr {
             case .and, .or:
                 argTy = .bool
                 retTy = .bool
+            case .concat:
+                argTy = .str
+                retTy = .str
             }
             
             try env.unify(lhsTy, argTy)

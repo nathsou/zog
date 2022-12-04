@@ -15,20 +15,21 @@ public struct zog {
                 }
                 
                 if parser.errors.isEmpty {
-                    let core = prog.map({ decl in decl.core(0) })
+                    let rewritingCtx = RewritingContext()
+                    let core = prog.map({ decl in decl.core(rewritingCtx, 0) })
                     let env = TypeEnv()
                     
                     func comment(_ text: CustomStringConvertible) -> String {
                         return String(describing: env).split(separator: "\n").map({ "// \($0)" }).joined(separator: "\n")
                     }
                     
-                    try core.forEach({ decl in try decl.infer(env, 0) })
+                    try core.forEach({ decl in try decl?.infer(env, 0) })
                     print(comment(env), "\n")
                     
                     let context = CoreContext(linear: false, env: env)
                     
                     for decl in core {
-                        context.statements.append(contentsOf: try decl.codegen(context))
+                        context.statements.append(contentsOf: try decl?.codegen(context) ?? [])
                     }
                     
                     for decl in context.statements {

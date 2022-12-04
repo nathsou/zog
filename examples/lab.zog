@@ -1,4 +1,9 @@
 let print: _ => () = raw { console.log }
+let raise: str => _ = raw { msg => { throw new Error(msg); } }
+let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
+let len: _[] => num = raw { array => array.length }
+let at: (a[], num) => a = raw { (elems, index) => elems.at(index) }
+let showNum: num => str = raw { n => String(n) }
 
 enum Type {
    Bool
@@ -12,24 +17,131 @@ enum Type {
    Record { field: str, type: Type }[]
 }
 
-let id = x => x
-
-let map = iterator (xs, f) => {
+let map = (xs: _[], f) => {
+    mut ys = []
+    
     for x in xs {
-        yield f(x)
+        ys->push(f(x))
     }
+    
+    ys
 }
 
+let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }
+
+let isTuple = type => match type { Tuple _ => true, _ => false }
+
 let show = type => match type {
-    Variable _ => "Var"
     Bool => "bool"
     Num => "num"
     Str => "str"
-    Alias { name } => name
-    Function _ => "function"
-    Record _ => "record"
+    Variable name => name
+    Tuple args => "(" ++ args->map(show)->join(", ") ++ ")"
+    Array ty => show(ty) ++ "[]"
+    Alias { name, args } => {
+        if args->len == 0 {
+            name
+        } else {
+            name ++ "(" ++ args->map(show)->join(", ") ++ ")"
+        }
+    }
+    Function { args, returns } => {
+        (if args->len == 1 and !args->at(0)->isTuple {
+            show(args->at(0))
+        } else {
+            "(" ++ args->map(show)->join(", ") ++ ")"
+        }) ++ " => " ++ show(returns)
+    }
+    Record fields => {
+        let entries = fields->map(({ field, type }) => field ++ ": " ++ show(type))
+        "{ " ++ entries->join(", ") ++ " }"
+    }
 }
 
-let ty = @type(map)
+let expectEqual = (a: a, b: a, message) => {
+    if a != b {
+       raise("test failed: " ++ message)
+    }
+}
 
-print(ty->show)
+let expectTypeAux = (actualType, expectedType) => {
+    expectEqual(
+        actualType,
+        expectedType,
+        "expected type '" ++ expectedType ++ "', got: '" ++ actualType ++ "'"
+    )
+}
+
+let expectError: (() => _) => () = raw { fn => {
+    try {
+        fn();
+        throw new Error("Expected test to fail, but it succeeded")
+    } catch (error) {}
+}}
+
+rewrite expectType(expr, expectedType) -> expectTypeAux(@type(expr)->show, expectedType)
+
+mut tests = []
+
+let test = (name, fn) => {
+    tests->push((name, fn))
+}
+
+let runTests = () => {
+    print("Running " ++ showNum(tests->len) ++ " test(s)")
+    
+    for (name, fn) in tests {
+        fn()
+        print("[Success] " ++ name)
+    }
+}
+
+test("Primitives", () => {
+    expectType(3, "num")
+    expectType(3.14, "num")
+    expectType((0), "num")
+    expectType(true, "bool")
+    expectType(false, "bool")
+    expectType("hello", "str")
+    expectType((), "unit")
+    expectType((1, "zog", true), "(num, str, bool)")
+    expectType(((1, (2, (3, (4)))), (5, 6)), "((num, (num, (num, num))), (num, num))")
+    expectType({ a: 1, b: "zog", c: true }, "{ a: num, b: str, c: bool }")
+})
+
+test("Binary operators", () => {
+    expectType(3 + 7, "num")
+    expectType(3 - 7, "num")
+    expectType(3 * 7, "num")
+    expectType(3 / 7, "num")
+    expectType(3 % 7, "num")
+    expectType(3 * (7 + 1), "num")
+    expectType(3 > 7, "bool")
+    expectType(3 < 7, "bool")
+    expectType(3 >= 7, "bool")
+    expectType(3 <= 7, "bool")
+    expectType(3 == 7, "bool")
+    expectType(3 != 7, "bool")
+    expectType("a" ++ "b", "str")
+})
+
+test("Functions", () => {
+    expectType(x => x, "A => A")
+    expectType(use id = x => x in (id(3), id(true)), "(num, bool)")
+    expectType(_ => 1, "A => num")
+    expectType((a, b) => a == b, "(A, A) => bool")
+    expectType((a, b) => a != b, "(A, A) => bool")
+    expectType(map, "(A[], A => B) => B[]")
+    expectType(((a, _)) => a, "((A, B)) => A")
+})
+
+enum BinaryOp { Plus, Minus }
+enum UnaryOp { Bang, Minus }
+
+test("Variants", () => {
+    expectType(Plus, "BinaryOp")
+    expectType(BinaryOp.Minus, "BinaryOp")
+    expectType(UnaryOp.Minus, "UnaryOp")
+})
+
+runTests()

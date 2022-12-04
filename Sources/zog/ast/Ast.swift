@@ -45,7 +45,7 @@ enum UnaryOperator: CustomStringConvertible {
 }
 
 enum BinaryOperator: CustomStringConvertible {
-    case add, sub, mul, div, mod, pow, equ, neq, lss, leq, gtr, geq, and, or
+    case add, sub, mul, div, mod, pow, equ, neq, lss, leq, gtr, geq, and, or, concat
 
     public var description: String {
         switch self {
@@ -63,6 +63,7 @@ enum BinaryOperator: CustomStringConvertible {
         case .geq: return ">="
         case .and: return "&&"
         case .or: return "||"
+        case .concat: return "++"
         }
     }
 }
@@ -105,7 +106,7 @@ indirect enum Expr: CustomStringConvertible {
     case Fun(args: [(Pattern, Ty?)], retTy: Ty?, body: Expr, isIterator: Bool)
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
-    case If(cond: Expr, thenExpr: Expr, elseExpr: Expr)
+    case If(cond: Expr, thenExpr: Expr, elseExpr: Expr?)
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
     case UseIn(pat: Pattern, ty: Ty?, val: Expr, rhs: Expr)
@@ -155,7 +156,9 @@ indirect enum Expr: CustomStringConvertible {
             } else {
                 return "{\n\(stmts.map(indent).joined(separator: "\n"))\n}"
             }
-        case let .If(cond, thenExpr, elseExpr):
+        case let .If(cond, thenExpr, nil):
+            return "if \(cond) \(thenExpr)"
+        case let .If(cond, thenExpr, elseExpr?):
             return "if \(cond) \(thenExpr) else \(elseExpr)"
         case let .Assignment(lhs, op, rhs):
             return "\(lhs) \(op) \(rhs)"
@@ -184,6 +187,69 @@ indirect enum Expr: CustomStringConvertible {
             return "@\(name)(\(args.map({ "\($0)" }).joined(separator: ", "))"
         }
     }
+    
+    func rewrite(with f: @escaping (Expr) -> Expr) -> Expr {
+        func aux(_ expr: Expr) -> Expr {
+            let res: Expr
+            switch expr {
+            case let .Literal(lit):
+                res = .Literal(lit)
+            case let .UnaryOp(op, expr):
+                res = .UnaryOp(op, aux(expr))
+            case let .BinaryOp(lhs, op, rhs):
+                res = .BinaryOp(aux(lhs), op, aux(rhs))
+            case let .Parens(expr):
+                res = .Parens(aux(expr))
+            case let .Var(name):
+                res = .Var(name)
+            case let .Fun(args, retTy, body, isIterator):
+                res = .Fun(args: args, retTy: retTy, body: aux(body), isIterator: isIterator)
+            case let .Call(fun, args):
+                res = .Call(f: aux(fun), args: args.map(aux))
+            case let .Block(stmts, ret):
+                res = .Block(stmts.map({ $0.rewrite(with: f) }), ret: ret.map(aux))
+            case let .If(cond, thenExpr, elseExpr):
+                res = .If(cond: aux(cond), thenExpr: aux(thenExpr), elseExpr: elseExpr.map(aux))
+            case let .Assignment(lhs, op, rhs):
+                res = .Assignment(aux(lhs), op, aux(rhs))
+            case let .Tuple(elems):
+                res = .Tuple(elems.map(aux))
+            case let .UseIn(pat, ty, val, rhs):
+                res = .UseIn(pat: pat, ty: ty, val: aux(val), rhs: aux(rhs))
+            case let .Array(elems):
+                res = .Array(elems.map(aux))
+            case let .Record(entries):
+                res = .Record(entries.map({ (field, val) in (field, aux(val)) }))
+            case let .RecordSelect(lhs, field):
+                res = .RecordSelect(aux(lhs), field: field)
+            case let .Pipeline(arg1, fun, remArgs):
+                res = .Pipeline(arg1: aux(arg1), f: fun, remArgs: remArgs.map(aux))
+            case let .Raw(js):
+                res = .Raw(js: js)
+            case let .Match(subject, cases):
+                res = .Match(aux(subject), cases: cases.map({ (pat, body) in (pat, aux(body)) }))
+            case let .Variant(typeName, variantName, val):
+                res = .Variant(typeName: typeName, variantName: variantName, val: val.map(aux))
+            case let .BuiltInCall(name, args):
+                res = .BuiltInCall(name, args.map(aux))
+            }
+            
+            return f(res)
+        }
+        
+        return aux(self)
+    }
+    
+    func substitute(mapping: [String:Expr]) -> Expr {
+        return rewrite(with: { expr in
+            switch expr {
+            case let .Var(name) where mapping.keys.contains(name):
+                return mapping[name]!
+            default:
+                return expr
+            }
+        })
+    }
 }
 
 enum Stmt: CustomStringConvertible {
@@ -191,7 +257,6 @@ enum Stmt: CustomStringConvertible {
     case Let(mut: Bool, pat: Pattern, ty: Ty?, val: Expr)
     indirect case While(cond: Expr, body: [Stmt])
     indirect case For(pat: Pattern, iterator: Expr, body: [Stmt])
-    indirect case If(cond: Expr, then: [Stmt], else_: [Stmt]?)
     case Return(Expr?)
     case Yield(Expr)
     case Break
@@ -211,12 +276,6 @@ enum Stmt: CustomStringConvertible {
         case let .For(pat, iterator, body):
             return
                 "for \(pat) in \(iterator) {\n\(body.map(indent).joined(separator: "\n"))\n}"
-        case let .If(cond, then, else_) where else_ != nil:
-            let thenFmt = "{\n\(then.map(indent).joined(separator: "\n"))\n}"
-            let elseFmt = "{\n\(else_!.map(indent).joined(separator: "\n"))\n}"
-            return "if \(cond) \(thenFmt) else \(elseFmt)"
-        case let .If(cond, then, _):
-            return "if \(cond) {\n\(then.map(indent).joined(separator: "\n"))\n}"
         case .Return(nil):
             return "return"
         case let .Return(.some(ret)):
@@ -229,12 +288,40 @@ enum Stmt: CustomStringConvertible {
             return "Error(\(error), span: (\(start), \(end)))"
         }
     }
+    
+    func rewrite(with _f: @escaping (Expr) -> Expr) -> Stmt {
+        let f = { (expr: Expr) in expr.rewrite(with: _f) }
+        
+        func aux(_ stmt: Stmt) -> Stmt {
+            switch stmt {
+            case let .Expr(expr):
+                return .Expr(f(expr))
+            case let .Let(mut, pat, ty, val):
+                return .Let(mut: mut, pat: pat, ty: ty, val: f(val))
+            case let .While(cond, body):
+                return .While(cond: f(cond), body: body.map(aux))
+            case let .For(pat, iterator, body):
+                return .For(pat: pat, iterator: f(iterator), body: body.map(aux))
+            case let .Return(ret):
+                return .Return(ret.map(f))
+            case let .Yield(val):
+                return .Yield(f(val))
+            case .Break:
+                return .Break
+            case let .Error(err, span):
+                return .Error(err, span: span)
+            }
+        }
+        
+        return aux(self)
+    }
 }
 
 enum Decl: CustomStringConvertible {
     case Stmt(Stmt)
     case TypeAlias(name: String, args: [TyVarId], ty: Ty)
     case Enum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
+    case Rewrite(ruleName: String, args: [String], rhs: Expr)
     
     var description: String {
         switch self {
@@ -262,6 +349,8 @@ enum Decl: CustomStringConvertible {
                 .joined(separator: ", ")
             
             return "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
+        case let .Rewrite(ruleName, args, rhs):
+            return "rewrite \(ruleName)(\(args.joined(separator: ", "))) -> \(rhs)"
         }
     }
 }

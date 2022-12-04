@@ -79,6 +79,12 @@ class Parser {
     func consume(_ token: Token) throws {
         try consume(token, error: .expected(token))
     }
+    
+    func consumeIfPresent(_ token: Token) {
+        if check(token) {
+            advance()
+        }
+    }
 
     func identifier() throws -> String {
         if case .identifier(let ident) = peek() {
@@ -131,12 +137,15 @@ class Parser {
             } while match(separator)
         }
         
+        consumeIfPresent(.symbol(.semicolon))
+        
         return terms
     }
     
     // commas(rule) -> (<rule> (',' <rule>)* ','?)?
     func commas<T>(_ rule: () throws -> T) throws -> [T] {
-        return try sepBy(rule, separator: .symbol(.comma))
+        let elems = try sepBy(rule, separator: .symbol(.comma))
+        return elems
     }
     
     func typeAnnotation(primitive: Bool = false) throws -> Ty? {
@@ -218,6 +227,9 @@ class Parser {
         case .identifier("enum"):
             advance()
             return try enumDecl()
+        case .identifier("rewrite"):
+            advance()
+            return try rewriteDecl()
         default:
             return .Stmt(statement())
         }
@@ -266,6 +278,19 @@ class Parser {
         return .Enum(name: name, args: [], variants: variants)
     }
     
+    // rewrite -> 'rewrite' identifier '(' identifier* ')' '->' expr
+    func rewriteDecl() throws -> Decl {
+        let ruleName = try identifier()
+        try consume(.symbol(.lparen))
+        let args = try commas(identifier)
+        try consume(.symbol(.rparen))
+        try consume(.symbol(.thinArrow))
+        let rhs = try expression()
+        try consume(.symbol(.semicolon))
+        
+        return .Rewrite(ruleName: ruleName, args: args, rhs: rhs)
+    }
+    
     // ------ statements ------
 
     func statement() -> Stmt {
@@ -303,9 +328,6 @@ class Parser {
         case .keyword(.For):
             advance()
             stmt = try forStmt()
-        case .keyword(.If):
-            advance()
-            stmt = try ifStmt()
         case .keyword(.Return):
             advance()
             let expr = attempt(expression)
@@ -363,21 +385,6 @@ class Parser {
 
         return .For(pat: pat, iterator: iterator, body: body)
     }
-    
-    // ifStmt -> 'if' expr '{' stmt* '}'
-    func ifStmt() throws -> Stmt {
-        let cond = try expression()
-        let then = try statementListBlock()
-        var else_: [Stmt]? = nil
-        
-        if match(.keyword(.Else)) {
-            else_ = try statementListBlock()
-        }
-        
-        try consume(.symbol(.semicolon))
-
-        return .If(cond: cond, then: then, else_: else_)
-    }
 
     // stmtListBlock -> '{' stmt* '}'
     func statementListBlock() throws -> [Stmt] {
@@ -428,8 +435,13 @@ class Parser {
         if match(.keyword(.If)) {
             let cond = try expression()
             let thenExpr = try expression()
-            try consume(.keyword(.Else))
-            let elseExpr = try expression()
+            let elseExpr: Expr?
+            
+            if match(.keyword(.Else)) {
+                elseExpr = try expression()
+            } else {
+                elseExpr = nil
+            }
 
             return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
         }
@@ -615,11 +627,11 @@ class Parser {
         return lhs
     }
 
-    // additive -> multiplicative (('+' | '-') multiplicative)*
+    // additive -> multiplicative (('+' | '-' | '++') multiplicative)*
     func additive() throws -> Expr {
         var lhs = try multiplicative()
 
-        while match(.symbol(.plus), .symbol(.minus)) {
+        while match(.symbol(.plus), .symbol(.minus), .symbol(.plusplus)) {
             var op: BinaryOperator?
 
             switch previous() {
@@ -627,6 +639,8 @@ class Parser {
                 op = .add
             case .symbol(.minus):
                 op = .sub
+            case .symbol(.plusplus):
+                op = .concat
             default:
                 break
             }

@@ -210,7 +210,7 @@ struct Lexer {
             case ">": return .symbol(match("=") ? .geq : .gtr)
             case "-": return .symbol(match(">") ? .thinArrow : match("=") ? .minuseq : .minus)
             case ".": return .symbol(match(".") ? match(".") ? .dotdotdot : .dotdot : .dot)
-            case "+": return .symbol(match("=") ? .pluseq : .plus)
+            case "+": return .symbol(match("=") ? .pluseq : match("+") ? .plusplus : .plus)
             case "*": return .symbol(match("=") ? .stareq : .star)
             case "%": return .symbol(.percent)
             case "\"": return parseString()

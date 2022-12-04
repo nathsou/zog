@@ -122,7 +122,7 @@ extension CoreExpr {
             return .ternary(
                 cond: try cond.codegen(ctx),
                 thenExpr: try thenExpr.codegen(ctx),
-                elseExpr: try elseExpr.codegen(ctx)
+                elseExpr: try elseExpr?.codegen(ctx) ?? .undefined
             )
         case let .Assignment(lhs, op, rhs, _):
             return .assignment(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
@@ -265,10 +265,10 @@ extension CoreExpr {
                     case let .const(name, args):
                         return typeVariant(
                             "Alias",
-                            val: .Tuple([
-                                .Literal(.str(name), ty: .str),
-                                .Tuple(args.map(typeOf), ty: .tuple(args))
-                            ], ty: .tuple([.str, .tuple(args)]))
+                            val: .Record([
+                                ("name", .Literal(.str(name), ty: .str)),
+                                ("args", .Tuple(args.map(typeOf), ty: .tuple(args)))
+                            ], ty: .record(Row.from(entries: [("name", .str), ("args", .tuple(args))])))
                         )
                     case let .fun(args, ret):
                         let argsTy = Ty.array(ZogType)
