@@ -184,7 +184,7 @@ indirect enum Expr: CustomStringConvertible {
         case let .Variant(typeName, variantName, val):
             return "\(typeName ?? "").\(variantName) \(val!)"
         case let .BuiltInCall(name, args):
-            return "@\(name)(\(args.map({ "\($0)" }).joined(separator: ", "))"
+            return "@\(name)(\(args.map({ "\($0)" }).joined(separator: ", ")))"
         }
     }
     

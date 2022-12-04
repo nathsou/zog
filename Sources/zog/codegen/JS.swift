@@ -7,6 +7,8 @@
 
 import Foundation
 
+let specialChars = Set<Character>(["\"", "\n"])
+
 indirect enum JSExpr: CustomStringConvertible {
     case boolean(Bool)
     case number(Float64)
@@ -34,7 +36,12 @@ indirect enum JSExpr: CustomStringConvertible {
         case let .number(x) where floor(x) == x: return "\(Int(x))"
         case let .number(x): return "\(x)"
         case .undefined: return "undefined"
-        case let .string(s): return "\"\(s)\""
+        case let .string(s):
+            if s.contains(where: { c in specialChars.contains(c) }) {
+                return "`\(s)`"
+            } else {
+                return "\"\(s)\""
+            }
         case let .variable(v): return v
         case let .parens(expr): return "(\(expr))"
         case let .closure(args, stmts):

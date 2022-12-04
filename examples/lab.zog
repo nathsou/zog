@@ -1,5 +1,5 @@
 let print: _ => () = raw { console.log }
-let raise: str => _ = raw { msg => { throw new Error(msg); } }
+let raise: str => _ = raw { msg => { throw msg; } }
 let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
 let len: _[] => num = raw { array => array.length }
 let at: (a[], num) => a = raw { (elems, index) => elems.at(index) }
@@ -66,13 +66,13 @@ let expectEqualAux = (a: a, b: a, showA: str, showB: str) => {
 
 rewrite expectEqual(a, b) -> expectEqualAux(a, b, @show(a), @show(b))
 
-let expectTypeAux = (actualType, expectedType) => {
+let expectTypeAux = (showExpr, actualType, expectedType) => {
     if actualType != expectedType {
-       raise("expected type '" ++ expectedType ++ "', got: '" ++ actualType ++ "'")
+       raise("Expected '" ++ showExpr ++ "' to have type: '" ++ expectedType ++ "', got: '" ++ actualType ++ "'")
     }
 }
 
-rewrite expectType(expr, expectedType) -> expectTypeAux(@type(expr)->show, expectedType)
+rewrite expectType(expr, expectedType) -> expectTypeAux(@show(expr), @type(expr)->show, expectedType)
 
 let expectError: (() => _) => () = raw { fn => {
     try {
@@ -87,12 +87,24 @@ let test = (name, fn) => {
     tests->push((name, fn))
 }
 
+let tryTest: (() => _) => str = raw { fn => {
+    try {
+        fn();
+        return "ok";
+    } catch (error) {
+        return String(error);
+    }
+}}
+
 let runTests = () => {
-    print("Running " ++ showNum(tests->len) ++ " test(s)")
+    let count = tests->len
+    print("Running " ++ showNum(count) ++ " test suite" ++ (if count == 1 "" else "s"))
     
     for (name, fn) in tests {
-        fn()
-        print("[Success] " ++ name)
+        match tryTest(fn) {
+           "ok" =>  print("[Success] " ++ name)
+           err => print("[Error] " ++ name ++ ":\n" ++ err)
+        }
     }
 }
 
