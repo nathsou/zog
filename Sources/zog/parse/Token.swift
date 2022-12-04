@@ -11,7 +11,7 @@ enum Symbol: CustomStringConvertible {
     case lparen, rparen, lbracket, rbracket, lcurlybracket, rcurlybracket, comma, semicolon, colon,
          eq, thinArrow, thickArrow, plus, minus, star, slash, percent, eqeq, bangeq, lss, leq, gtr,
          geq, bang, dot, dotdot, dotdotdot, dotdoteq, pipe, pluseq, minuseq, stareq, slasheq, underscore,
-         singlequote
+         singlequote, at
 
     public var description: String {
         switch self {
@@ -50,6 +50,7 @@ enum Symbol: CustomStringConvertible {
         case .slasheq: return "/="
         case .underscore: return "_"
         case .singlequote: return "'"
+        case .at: return "@"
         }
     }
 }

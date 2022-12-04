@@ -80,6 +80,7 @@ enum JSStmt: CustomStringConvertible {
     case varDecl(mut: Bool, JSExpr, JSExpr)
     case whileLoop(cond: JSExpr, body: [JSStmt])
     case forOfLoop(pat: JSExpr, in: JSExpr, body: [JSStmt])
+    case forLoop(name: String, start: JSExpr, end: JSExpr, step: JSExpr, body: [JSStmt])
     case if_(cond: JSExpr, then: [JSStmt], else_: [JSStmt]?)
     case return_(JSExpr?)
     case yield(JSExpr)
@@ -105,6 +106,8 @@ enum JSStmt: CustomStringConvertible {
             return "while (\(cond)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
         case let .forOfLoop(ident, of, body):
             return "for (const \(ident) of \(of)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
+        case let .forLoop(name, start, end, step, body):
+            return "for (let \(name) = \(start); \(name) < \(end); \(name) += \(step)) \("{\n\(body.map(indent).joined(separator: "\n"))\n}")"
         case let .return_(ret):
             if let ret {
                 return "return \(ret);"

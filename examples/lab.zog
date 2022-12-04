@@ -1,0 +1,35 @@
+let print: _ => () = raw { console.log }
+
+enum Type {
+   Bool
+   Num
+   Str
+   Variable str
+   Tuple Type[]
+   Array Type
+   Alias { name: str, args: Type[] }
+   Function { args: Type[], returns: Type }
+   Record { field: str, type: Type }[]
+}
+
+let id = x => x
+
+let map = iterator (xs, f) => {
+    for x in xs {
+        yield f(x)
+    }
+}
+
+let show = type => match type {
+    Variable _ => "Var"
+    Bool => "bool"
+    Num => "num"
+    Str => "str"
+    Alias { name } => name
+    Function _ => "function"
+    Record _ => "record"
+}
+
+let ty = @type(map)
+
+print(ty->show)

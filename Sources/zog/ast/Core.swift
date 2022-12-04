@@ -27,6 +27,7 @@ indirect enum CoreExpr {
     case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
     case Variant(enumName: Ref<String?>, variantName: String, val: CoreExpr?, ty: Ty)
+    case BuiltInCall(String, [CoreExpr], ty: Ty)
     
     public var ty: Ty {
         switch self {
@@ -49,6 +50,7 @@ indirect enum CoreExpr {
         case .Match(_, _, let ty): return ty
         case .Switch(_, _, _, let ty): return ty
         case .Variant(_, _, _, let ty): return ty
+        case .BuiltInCall(_, _, let ty): return ty
         }
     }
 }
@@ -115,6 +117,8 @@ extension Expr {
                 val: val.map({ $0.core(lvl) }),
                 ty: ty()
             )
+        case let .BuiltInCall(name, args):
+            return .BuiltInCall(name, args.map({ arg in arg.core(lvl) }), ty: ty())
         }
     }
 }

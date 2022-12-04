@@ -116,6 +116,7 @@ indirect enum Expr: CustomStringConvertible {
     case Raw(js: String)
     case Match(Expr, cases: [(Pattern, Expr)])
     case Variant(typeName: String?, variantName: String, val: Expr?)
+    case BuiltInCall(String, [Expr])
 
     public var description: String {
         switch self {
@@ -179,6 +180,8 @@ indirect enum Expr: CustomStringConvertible {
             return "\(typeName ?? "").\(variantName)"
         case let .Variant(typeName, variantName, val):
             return "\(typeName ?? "").\(variantName) \(val!)"
+        case let .BuiltInCall(name, args):
+            return "@\(name)(\(args.map({ "\($0)" }).joined(separator: ", "))"
         }
     }
 }

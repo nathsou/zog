@@ -1,5 +1,5 @@
-let print: a => () = raw { console.log }
-let raise: str => a = raw { msg => { throw new Error(msg); } }
+let print: _ => () = raw { console.log }
+let raise: str => _ = raw { msg => { throw new Error(msg); } }
 
 type Map = { get: str => a, set: (str, a) => (), has: str => bool }
 let createMap: () => Map = raw { () => new Map() }

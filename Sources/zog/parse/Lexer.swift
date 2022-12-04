@@ -203,6 +203,7 @@ struct Lexer {
             case "|": return .symbol(.pipe)
             case "_": return .symbol(.underscore)
             case "'": return .symbol(.singlequote)
+            case "@": return .symbol(.at)
             case "=": return .symbol(match(">") ? .thickArrow : match("=") ? .eqeq : .eq)
             case "!": return .symbol(match("=") ? .bangeq : .bang)
             case "<": return .symbol(match("=") ? .leq : .lss)

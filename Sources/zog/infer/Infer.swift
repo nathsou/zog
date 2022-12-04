@@ -237,6 +237,25 @@ extension CoreExpr {
             _ = try val?.infer(env, level, expectedTy: associatedTy) ?? .unit
             try env.unify(enumTy, ty)
             tau = ty
+        case let .BuiltInCall(name, args, _):
+            for arg in args {
+                _ = try arg.infer(env, level)
+            }
+            
+            switch name {
+            case "type":
+                guard args.count == 1 else {
+                    throw TypeError.wrongNumberOfArguments(
+                        name: "@type",
+                        expected: 1,
+                        got: args.count
+                    )
+                }
+                
+                tau = .const("Type", [])
+            default:
+                throw TypeError.invalidBuiltInCall(name)
+            }
         }
         
         let ty = self.ty
@@ -273,8 +292,16 @@ extension CoreStmt {
             }
         case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)
-            let iterItemTy = Ty.fresh(level: level)
-            try env.unify(iterTy, .iterator(iterItemTy))
+            let iterItemTy: Ty
+            
+            // Arrays are iterators
+            if case let .const("Array", args) = iterTy.deref(), args.count == 1 {
+                iterItemTy = args[0]
+            } else {
+                iterItemTy = Ty.fresh(level: level)
+                try env.unify(iterTy, .iterator(iterItemTy))
+            }
+            
             let bodyEnv = env.child()
             let (patternTy, patternVars) = try pat.ty(
                 level: level,

@@ -1,5 +1,5 @@
 
-let print: a => () = raw { console.log }
+let print: _ => () = raw { console.log }
 let iter: a[] => Iterator<a> = raw { array => array[Symbol.iterator]() }
 let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
 

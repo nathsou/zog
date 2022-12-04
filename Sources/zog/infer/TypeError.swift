@@ -21,6 +21,8 @@ enum TypeError: Error, CustomStringConvertible {
     case couldNotResolveType(Ty)
     case noEnumMatchesVariants(variants: [String])
     case ambiguousEnumForVariants(variants: [String], candidates: [String])
+    case invalidBuiltInCall(String)
+    case wrongNumberOfArguments(name: String, expected: Int, got: Int)
 
     public var description: String {
         switch self {
@@ -57,6 +59,10 @@ enum TypeError: Error, CustomStringConvertible {
             return "No enum matches variants: '\(variants.joined(separator: ", "))'"
         case let .ambiguousEnumForVariants(variants, candidates):
             return "Variants [\(variants.joined(separator: ", "))] are present in multiple enums: [\(candidates.joined(separator: ", "))]"
+        case let .invalidBuiltInCall(name):
+            return "@\(name) is not a built in function"
+        case let .wrongNumberOfArguments(name, expected, got):
+            return "\(name) expects \(expected) argument(s), received \(got)"
         }
     }
 }

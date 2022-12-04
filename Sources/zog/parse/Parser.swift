@@ -750,6 +750,9 @@ class Parser {
         case .symbol(.lbracket):
             advance()
             return try array()
+        case .symbol(.at):
+            advance()
+            return try builtInCall()
         default:
             throw ParserError.expectedExpression
         }
@@ -865,6 +868,16 @@ class Parser {
         return .Variant(typeName: typeName, variantName: variantName, val: val)
     }
     
+    // builtInCall -> '@' identifier '(' commas(expr) ')'
+    func builtInCall() throws -> Expr {
+        let name = try identifier()
+        try consume(.symbol(.lparen))
+        let args = try commas(expression)
+        try consume(.symbol(.rparen))
+        
+        return .BuiltInCall(name, args)
+    }
+    
     // ------ types ------
     
     func type() throws -> Ty {
@@ -927,6 +940,10 @@ class Parser {
         case .identifier("str"):
             advance()
             return .str
+        case .symbol(.underscore):
+            advance()
+            let id = TyContext.freshTyVarId()
+            return .variable(Ref(.unbound(id: id, level: generalizationLevel)))
         case .identifier(let name) where name.first!.isUppercase:
             advance()
             return try constType(name: name)
