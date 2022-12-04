@@ -58,28 +58,28 @@ let show = type => match type {
     }
 }
 
-let expectEqual = (a: a, b: a, message) => {
+let expectEqualAux = (a: a, b: a, showA: str, showB: str) => {
     if a != b {
-       raise("test failed: " ++ message)
+       raise(showA ++ " != " ++ showB)
     }
 }
 
+rewrite expectEqual(a, b) -> expectEqualAux(a, b, @show(a), @show(b))
+
 let expectTypeAux = (actualType, expectedType) => {
-    expectEqual(
-        actualType,
-        expectedType,
-        "expected type '" ++ expectedType ++ "', got: '" ++ actualType ++ "'"
-    )
+    if actualType != expectedType {
+       raise("expected type '" ++ expectedType ++ "', got: '" ++ actualType ++ "'")
+    }
 }
+
+rewrite expectType(expr, expectedType) -> expectTypeAux(@type(expr)->show, expectedType)
 
 let expectError: (() => _) => () = raw { fn => {
     try {
         fn();
-        throw new Error("Expected test to fail, but it succeeded")
+        throw new Error("Expected test to fail")
     } catch (error) {}
 }}
-
-rewrite expectType(expr, expectedType) -> expectTypeAux(@type(expr)->show, expectedType)
 
 mut tests = []
 
@@ -133,6 +133,13 @@ test("Functions", () => {
     expectType((a, b) => a != b, "(A, A) => bool")
     expectType(map, "(A[], A => B) => B[]")
     expectType(((a, _)) => a, "((A, B)) => A")
+})
+
+test("Recursion", () => {
+    let fact = n => if n == 0 1 else n * fact(n - 1)
+    expectType(fact, "num => num")
+    expectEqual(fact(0), 1)
+    expectEqual(fact(17), 355687428096000)
 })
 
 enum BinaryOp { Plus, Minus }

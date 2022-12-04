@@ -142,6 +142,8 @@ extension Expr {
                 val: val.map({ $0.core(ctx, lvl) }),
                 ty: ty()
             )
+        case let .BuiltInCall("show", args) where args.count == 1:
+            return .Literal(.str("\(args[0])"), ty: .str)
         case let .BuiltInCall(name, args):
             return .BuiltInCall(name, args.map({ arg in arg.core(ctx, lvl) }), ty: ty())
         }
