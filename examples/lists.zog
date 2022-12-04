@@ -1,0 +1,68 @@
+let print: a => () = raw { console.log }
+let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
+
+enum List { Nil, Cons(num, List) }
+
+let lst = Cons(1, Cons(2, Cons(3, Nil)))
+
+let len = list => match list {
+    Cons(_, tl) => len(tl) + 1
+    Nil => 0
+}
+
+let map = (lst, f) => match lst {
+    Cons(h, tl) => Cons(f(h), tl->map(f))
+    Nil => Nil
+}
+
+let forEach = (lst, f) => match lst {
+    Cons(h, tl) => { f(h); tl->forEach(f) }
+    Nil => ()
+}
+
+let toArray = lst => {
+    mut elems = []
+    
+    lst->forEach(elem => {
+        elems->push(elem)
+    })
+    
+    elems
+}
+
+let range = (start, end) => {
+    mut i = end
+    mut lst = Nil
+    
+    while i >= start {
+        lst = Cons(i, lst)
+        i -= 1
+    }
+    
+    lst
+}
+
+let reverse = lst => {
+    let aux = (l, acc) => match l {
+        Cons(h, tl) => tl->aux(Cons(h, acc))
+        Nil => acc
+    }
+    
+    aux(lst, Nil)
+}
+
+let fold = (lst, f, initialValue) => {
+    let aux = (l, acc) => match l {
+        Cons(h, tl) => tl->aux(f(h, acc))
+        Nil => acc
+    }
+    
+    aux(lst, initialValue)
+}
+
+let sum = lst => lst->fold((a, b) => a + b, 0)
+let product = lst => lst->fold((a, b) => a * b, 1)
+
+let fact = n => range(1, n)->product
+
+print(fact(17))

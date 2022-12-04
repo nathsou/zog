@@ -1,0 +1,22 @@
+let print: a => () = raw { console.log }
+
+enum Nat { Z, S Nat }
+
+let toNat = n => if n == 0 Z else S((n - 1)->toNat)
+let toNum = n => match n { Z => 0, S m => m->toNum + 1 }
+
+let add = (a, b) => match (a, b) {
+    (Z, _) => b
+    (_, Z) => a
+    (S(m), n) => S(m->add(n))
+    (m, S(n)) => S(m->add(n))
+}
+
+let mul = (a, b) => match (a, b) {
+    (Z, _) => Z
+    (_, Z) => Z
+    (S(m), n) => n->add(m->mul(n))
+    (m, S(n)) => m->add(m->mul(n))
+}
+
+print(23->toNat->mul(17->toNat)->toNum)

@@ -10,7 +10,7 @@ import XCTest
 @testable import zog
 
 final class inferenceTests: XCTestCase {
-    func infer(_ source: String, env: TypeEnv = TypeEnv()) throws -> Ty {
+    func infer(_ source: String, _ env: TypeEnv = TypeEnv()) throws -> Ty {
         var lexer = Lexer.init(source: source)
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
@@ -144,10 +144,27 @@ final class inferenceTests: XCTestCase {
             "enum UnaryOp { Bang, Minus }",
         ])
         
-        XCTAssertEqual(try infer(".Plus", env: env3).canonical, "BinaryOp")
-        XCTAssertEqual(try infer(".Bang", env: env3).canonical, "UnaryOp")
-        XCTAssertEqual(try infer("BinaryOp.Minus", env: env3).canonical, "BinaryOp")
-        XCTAssertEqual(try infer("UnaryOp.Minus", env: env3).canonical, "UnaryOp")
-        XCTAssertThrowsError(try infer(".Minus", env: env3))
+        XCTAssertEqual(try infer(".Plus", env3).canonical, "BinaryOp")
+        XCTAssertEqual(try infer(".Bang", env3).canonical, "UnaryOp")
+        XCTAssertEqual(try infer("BinaryOp.Minus", env3).canonical, "BinaryOp")
+        XCTAssertEqual(try infer("UnaryOp.Minus", env3).canonical, "UnaryOp")
+        XCTAssertThrowsError(try infer(".Minus", env3))
+        XCTAssertEqual(try infer("use op: UnaryOp = Minus in op", env3).canonical, "UnaryOp")
+        XCTAssertEqual(
+            try infer("op => match op { Plus => 0, Minus => 1 }", env3).canonical,
+            "BinaryOp => num"
+        )
+        XCTAssertEqual(
+            try infer("op => match op { Bang => 0, Minus => 1 }", env3).canonical,
+            "UnaryOp => num"
+        )
+        XCTAssertEqual(
+            try infer("(op: UnaryOp) => match op { Minus => 0, _ => 1 }", env3).canonical,
+            "UnaryOp => num"
+        )
+        XCTAssertEqual(
+            try infer("(op: BinaryOp) => match op { Minus => 0, _ => 1 }", env3).canonical,
+            "BinaryOp => num"
+        )
     }
 }

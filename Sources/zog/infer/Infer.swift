@@ -259,11 +259,7 @@ extension CoreStmt {
                 try rhsEnv.declare(variable, ty: ty)
             }
             
-            let valTy = try val.infer(rhsEnv, level + 1)
-            
-            if let ann {
-                try env.unify(ann, valTy)
-            }
+            let valTy = try val.infer(rhsEnv, level + 1, expectedTy: ann)
             
             try env.unify(patternTy, valTy)
             
