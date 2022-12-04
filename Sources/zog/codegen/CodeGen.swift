@@ -184,8 +184,9 @@ extension CoreExpr {
                 
                 return result
             }
-        case let .Variant(_, variantName, val, _):
-            let tag = JSExpr.string(variantName)
+        case let .Variant(enumName, variantName, val, _):
+            let enum_ = ctx.env.enums[enumName.ref!]!
+            let tag = JSExpr.number(Float64(enum_.variants.mapping[variantName]!.id))
             
             if let val {
                 return .object([
@@ -330,10 +331,10 @@ extension DecisionTree {
                             .Literal(lit, ty: lit.ty),
                             aux(dt, subject: subject)
                         ))
-                    case let .variant(_, tag):
+                    case let .variant(_, _, id):
                         isEnum = true
                         tests.append((
-                            .Literal(.str(tag), ty: .str),
+                            .Literal(.num(Float64(id)), ty: .str),
                             aux(dt, subject: subject)
                         ))
                     default:

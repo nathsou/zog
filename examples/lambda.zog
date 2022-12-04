@@ -7,7 +7,7 @@ let clone: Map => Map = raw { map => new Map(map) }
 
 type Env = Map
 
-enum BinOp { Add, Sub, Mul, Div, Equ }
+enum BinOp { Add, Sub, Mul, Div, Equ, Neq, Lss, Gtr, Leq, Geq }
 
 enum Expr {
     Num num
@@ -42,6 +42,7 @@ let eval = (expr: Expr, env: Env): Value => match expr {
         bodyEnv.set(name, RecClosure { name: name, arg: arg, body: body, env: env })
         rhs->eval(bodyEnv)
     }
+    Lambda { arg, body } => Closure { arg: arg, body: body, env: env->clone }
     Bin { lhs, op, rhs } => match (lhs->eval(env), rhs->eval(env)) {
         (Num a, Num b) => match op {
             Add => Num a + b
@@ -49,13 +50,17 @@ let eval = (expr: Expr, env: Env): Value => match expr {
             Mul => Num a * b
             Div => Num a / b
             Equ => Bool a == b
+            Neq => Bool a != b
+            Lss => Bool a < b
+            Gtr => Bool a > b
+            Leq => Bool a <= b
+            Geq => Bool a >= b
         }
         (Bool a, Bool b) => match op {
             Equ => Bool a == b
         }
         _ => raise("invalid operands in binary expression")
     }
-    Lambda { arg, body } => Closure { arg: arg, body: body, env: env->clone }
     App { lhs, arg } => {
         match lhs->eval(env) {
             Closure { arg: argName, body, env: bodyEnv } => {

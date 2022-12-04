@@ -26,7 +26,7 @@ indirect enum CoreExpr {
     case Raw(js: String, ty: Ty)
     case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
-    case Variant(typeName: String?, variantName: String, val: CoreExpr?, ty: Ty)
+    case Variant(enumName: Ref<String?>, variantName: String, val: CoreExpr?, ty: Ty)
     
     public var ty: Ty {
         switch self {
@@ -108,9 +108,9 @@ extension Expr {
                 cases: cases.map({ (pat, body) in (pat.core(), body.core(lvl)) }),
                 ty: ty()
             )
-        case let .Variant(typeName, variantName, val):
+        case let .Variant(enumName, variantName, val):
             return .Variant(
-                typeName: typeName,
+                enumName: Ref(enumName),
                 variantName: variantName,
                 val: val.map({ $0.core(lvl) }),
                 ty: ty()
@@ -252,7 +252,7 @@ enum CorePattern: CustomStringConvertible {
                     enum_ = try env.lookupEnumUnique(variants: [variantName])
                 }
                 
-                _ = try pat.map({ try go($0, enum_.mapping[variantName]!) })
+                _ = try pat.map({ try go($0, enum_.mapping[variantName]!.ty) })
                 
                 return .const(enum_.name, [])
             }

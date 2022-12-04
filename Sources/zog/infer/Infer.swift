@@ -221,7 +221,7 @@ extension CoreExpr {
             tau = ty
         case let .Variant(enumName, variantName, val, ty):
             let enum_: Enum
-            if let enumName {
+            if let enumName = enumName.ref {
                 enum_ = env.enums[enumName]!.variants
             } else {
                 if case let .const(enumName, _) = ty.deref() {
@@ -231,8 +231,9 @@ extension CoreExpr {
                 }
             }
             
+            enumName.ref = enum_.name
             let enumTy = Ty.const(enum_.name, [])
-            let associatedTy = enum_.mapping[variantName]! ?? .unit
+            let associatedTy = enum_.mapping[variantName]!.ty ?? .unit
             _ = try val?.infer(env, level, expectedTy: associatedTy) ?? .unit
             try env.unify(enumTy, ty)
             tau = ty

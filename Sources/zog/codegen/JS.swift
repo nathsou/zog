@@ -56,6 +56,7 @@ indirect enum JSExpr: CustomStringConvertible {
         case let .call(lhs, args): return "\(lhs)(\(args.map({ "\($0)" }).joined(separator: ", ")))"
         case let .unaryOperation(op, expr): return "\(op)\(expr)"
         case let .binaryOperation(lhs, op, rhs) where op == .equ: return "\(lhs) === \(rhs)"
+        case let .binaryOperation(lhs, op, rhs) where op == .neq: return "\(lhs) !== \(rhs)"
         case let .binaryOperation(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
         case let .ternary(cond, thenExpr, elseExpr): return "\(cond) ? \(thenExpr) : \(elseExpr)"
         case let .assignment(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"

@@ -53,7 +53,7 @@ extension CoreExpr {
             case let .const(name, _) where env.enums.keys.contains(name):
                 switch key {
                 case let .variant(variant):
-                    if let ty = env.enums[name]!.variants.mapping[variant]! {
+                    if case let (_, ty?) = env.enums[name]!.variants.mapping[variant]! {
                         expr = .RecordSelect(expr, field: "value", ty: ty)
                     }
                 case .index(_):
@@ -72,7 +72,7 @@ enum Ctor: Hashable {
     case tuple
     case record
     case literal(Literal)
-    case variant(enumName: String, variant: String)
+    case variant(enumName: String, variant: String, id: Int)
 }
 
 enum SimplifiedPattern {
@@ -145,18 +145,18 @@ extension CorePattern {
                     enum_ = try env.lookupEnumUnique(variants: [name])
                 }
                 
-                if let associatedTy = enum_.mapping[name] {
+                if let (id, associatedTy) = enum_.mapping[name] {
                     let enumName = enum_.name
                     if let pat {
                         return .const(
-                            .variant(enumName: enumName, variant: name),
+                            .variant(enumName: enumName, variant: name, id: id),
                             [try aux(pat, associatedTy!)]
                         )
                     } else {
-                        return .const(.variant(enumName: enumName, variant: name), [])
+                        return .const(.variant(enumName: enumName, variant: name, id: id), [])
                     }
                 } else {
-                    fatalError("expected variant pattern to be associated with an enum")
+                    fatalError("expected variant pattern for '\(name)' to be associated with an enum")
                 }
             }
         }
@@ -407,9 +407,9 @@ fileprivate struct ClauseMatrix {
             for (ctor, (arity: arity, rowIndex: rowIndex)) in hds {                
                 var o1 = (0..<arity).map({ i in occurrences[0] + [.index(i)] }) + occurrences[1...]
                 var args = [SimplifiedTy]()
-                if case let .variant(enumName, variantName) = ctor {
+                if case let .variant(enumName, variantName, _) = ctor {
                     let enums = env.enums[enumName]!
-                    if let associatedTy = enums.variants.mapping[variantName]! {
+                    if case let (_, associatedTy?) = enums.variants.mapping[variantName]! {
                         args = [associatedTy.simplified()]
                     } else {
                         args = []

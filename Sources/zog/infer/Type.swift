@@ -22,12 +22,18 @@ class TyContext {
 class Enum {
     let name: String
     let variants: [(name: String, ty: Ty?)]
-    let mapping: [String:Ty?]
+    let mapping: [String:(id: Int, ty: Ty?)]
     
     init(name: String, variants: [(name: String, ty: Ty?)]) {
         self.name = name
         self.variants = variants
-        mapping = Dictionary(uniqueKeysWithValues: variants)
+        var mapping = [String:(Int, Ty?)]()
+        
+        for (id, (name, ty)) in variants.enumerated() {
+            mapping[name] = (id, ty)
+        }
+        
+        self.mapping = mapping
     }
 }
 
