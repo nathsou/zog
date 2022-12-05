@@ -23,6 +23,8 @@ enum TypeError: Error, CustomStringConvertible {
     case ambiguousEnumForVariants(variants: [String], candidates: [String])
     case invalidBuiltInCall(String)
     case wrongNumberOfArguments(name: String, expected: Int, got: Int)
+    case extraneousVariantArgument(enumName: String, variant: String)
+    case missingVariantArgument(enumName: String, variant: String)
 
     public var description: String {
         switch self {
@@ -63,6 +65,10 @@ enum TypeError: Error, CustomStringConvertible {
             return "@\(name) is not a built in function"
         case let .wrongNumberOfArguments(name, expected, got):
             return "\(name) expects \(expected) argument(s), received \(got)"
+        case let .extraneousVariantArgument(enumName, variant):
+            return "Extraneous argument in \(enumName).\(variant) variant constructor"
+        case let .missingVariantArgument(enumName, variant):
+            return "Missing argument in \(enumName).\(variant) variant constructor"
         }
     }
 }

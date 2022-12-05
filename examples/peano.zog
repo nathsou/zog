@@ -2,7 +2,7 @@ let print: a => () = raw { console.log }
 
 enum Nat { Z, S(Nat) }
 
-let toNat = n => if n == 0 { Z } else { S(n - 1)->toNat }
+let toNat = n => if n == 0 { Z } else { S((n - 1)->toNat) }
 let toNum = n => match n { Z => 0, S(m) => m->toNum + 1 }
 
 let add = (a, b) => match (a, b) {

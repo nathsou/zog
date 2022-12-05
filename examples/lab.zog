@@ -2,9 +2,27 @@ let print: _ => () = raw { console.log }
 
 enum Option<a> { None, Some(a) }
 
+enum Either<a, b> { Left(a), Right(b) }
+
+let isSome = opt => match opt { Some(_) => true, _ => false }
+let isNone = opt => match opt { None => true, _ => false }
+
+let isLeft = either => match either { Left(_) => true, _ => false }
+let isRight = either => match either { Right(_) => true, _ => false }
+
 let map = (opt, f) => match opt {
     Some(a) => Some(f(a))
     None => None
+}
+
+let flatMap = (opt, f) => match opt {
+    Some(a) => f(a)
+    None => None
+}
+
+let mapEither = (either, f) => match either {
+    Left(l) => Left(f(l))
+    Right(r) => Right(f(r))
 }
 
 let age = Some(24)->map(n => n * n)

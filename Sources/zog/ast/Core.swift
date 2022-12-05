@@ -300,6 +300,12 @@ enum CorePattern: CustomStringConvertible {
                 let (subst, enumTy) = enum_.instantiate(level: level)
                 let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst)
                 
+                if pat == nil, associatedTy != nil {
+                    throw TypeError.missingVariantArgument(enumName: enum_.name, variant: variantName)
+                } else if pat != nil, associatedTy == nil {
+                    throw TypeError.extraneousVariantArgument(enumName: enum_.name, variant: variantName)
+                }
+                
                 _ = try pat.map({ try go($0, associatedTy) })
                 
                 return enumTy

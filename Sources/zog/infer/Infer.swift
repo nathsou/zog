@@ -87,7 +87,7 @@ extension CoreExpr {
                 try stmt.infer(thenEnv, level)
             }
             
-            for stmt in then {
+            for stmt in else_ {
                 try stmt.infer(elseEnv, level)
             }
             
@@ -255,8 +255,15 @@ extension CoreExpr {
             
             enumName.ref = enum_.name
             let (subst, enumTy) = enum_.instantiate(level: level)
-            let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst) ?? .unit
+            let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst)
             _ = try val?.infer(env, level, expectedTy: associatedTy)
+            
+            if val == nil, associatedTy != nil {
+                throw TypeError.missingVariantArgument(enumName: enum_.name, variant: variantName)
+            } else if val != nil, associatedTy == nil {
+                throw TypeError.extraneousVariantArgument(enumName: enum_.name, variant: variantName)
+            }
+            
             try env.unify(enumTy, ty)
             tau = ty
         case let .BuiltInCall(name, args, _):
