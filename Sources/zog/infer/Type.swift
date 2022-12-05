@@ -21,12 +21,14 @@ class TyContext {
 
 class Enum {
     let name: String
+    let args: [TyVarId]
     let variants: [(name: String, ty: Ty?)]
     let mapping: [String:(id: Int, ty: Ty?)]
     
-    init(name: String, variants: [(name: String, ty: Ty?)]) {
+    init(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)]) {
         self.name = name
         self.variants = variants
+        self.args = args
         var mapping = [String:(Int, Ty?)]()
         
         for (id, (name, ty)) in variants.enumerated() {
@@ -34,6 +36,18 @@ class Enum {
         }
         
         self.mapping = mapping
+    }
+    
+    func instantiate(level: UInt) -> (subst: [TyVarId:Ty], ty: Ty) {
+        var subst = [TyVarId:Ty]()
+        
+        for arg in args {
+            subst[arg] = .fresh(level: level)
+        }
+        
+        let argTys = args.map({ id in Ty.variable(Ref(.unbound(id: id, level: level))) })
+        
+        return (subst, .const(name, argTys).substitute(subst))
     }
 }
 
@@ -90,7 +104,7 @@ class TypeEnv: CustomStringConvertible {
     }
     
     func declareEnum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)]) {
-        enums[name] = (args, .init(name: name, variants: variants))
+        enums[name] = (args, .init(name: name, args: args, variants: variants))
     }
     
     func lookupEnums(variants: [String]) -> [Enum] {
@@ -371,7 +385,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         return go(self)
     }
 
-    public func deref() -> Ty {
+    func deref() -> Ty {
         if case let .variable(tyVar) = self, case let .link(ty) = tyVar.ref {
             let res = ty.deref()
             tyVar.ref = .link(res)
@@ -381,7 +395,31 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         return self
     }
     
-    public static func == (s: Ty, t: Ty) -> Bool {
+    func substitute(_ mapping: [TyVarId:Ty]) -> Ty {
+        func aux(_ ty: Ty) -> Ty {
+            switch ty {
+            case let .variable(v):
+                switch v.ref {
+                case let .unbound(id, level):
+                    return mapping[id] ?? .variable(Ref(.unbound(id: id, level: level)))
+                case let .link(to):
+                    return aux(to)
+                case let .generic(id):
+                    return mapping[id] ?? .variable(Ref(.generic(id)))
+                }
+            case let .const(name, args):
+                return .const(name, args.map(aux))
+            case let .fun(args, ret):
+                return .fun(args.map(aux), aux(ret))
+            case let .record(row):
+                return .record(row.map(types: aux))
+            }
+        }
+        
+        return aux(self)
+    }
+    
+    static func == (s: Ty, t: Ty) -> Bool {
         return "\(s)" == "\(t)"
     }
 }

@@ -118,12 +118,36 @@ extension CoreExpr {
             ctx.statements.append(contentsOf: blockCtx.statements)
             
             return ret ?? .undefined
-        case let .If(cond, thenExpr, elseExpr, _):
-            return .ternary(
-                cond: try cond.codegen(ctx),
-                thenExpr: try thenExpr.codegen(ctx),
-                elseExpr: try elseExpr?.codegen(ctx) ?? .undefined
-            )
+        case let .If(cond, then, else_, ty):
+            if case let .Expr(retThen) = then.last, case let .Expr(retElse) = else_.last {
+                if then.count == 1 && else_.count == 1 {
+                    return .ternary(
+                        cond: try cond.codegen(ctx),
+                        thenExpr: try retThen.codegen(ctx),
+                        elseExpr: try retElse.codegen(ctx)
+                    )
+                }
+                
+                let resultName = ctx.declareUnique("result")
+                let resultVar = CoreExpr.Var(resultName, ty: ty)
+                
+                let thenStmts: [CoreStmt] = then.dropLast(1) + [
+                    .Expr(.Assignment(resultVar, .eq, retThen, ty: ty))
+                ]
+                
+                let elseStmts: [CoreStmt] = else_.dropLast(1) + [
+                    .Expr(.Assignment(resultVar, .eq, retElse, ty: ty))
+                ]
+                
+                return try CoreExpr.Block([
+                    .Let(mut: true, pat: .variable(resultName), ty: ty, val: .Literal(.unit, ty: .unit)),
+                    .If(cond: cond, then: thenStmts, else_: elseStmts)
+                ], ret: resultVar, ty: ty).codegen(ctx)
+            }
+            
+            ctx.statements.append(try CoreStmt.If(cond: cond, then: then, else_: else_).codegen(ctx))
+            
+            return .undefined
         case let .Assignment(lhs, op, rhs, _):
             return .assignment(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
         case let .Tuple(elems, _), let .Array(elems, _):
@@ -305,6 +329,8 @@ extension CoreExpr {
 extension CoreStmt {
     func codegen(_ ctx: CoreContext) throws -> JSStmt {
         switch self {
+        case let .Expr(.If(cond, then, else_, _)):
+            return try CoreStmt.If(cond: cond, then: then, else_: else_).codegen(ctx)
         case let .Expr(expr):
             return .expr(try expr.codegen(ctx))
         case let .Let(_, pat: .any, _, val):

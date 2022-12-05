@@ -76,16 +76,31 @@ extension CoreExpr {
             try env.unify(expectedTy, funTy)
             
             tau = retTy
-        case let .If(cond, thenExpr, elseExpr, _):
-            let condTy = try cond.infer(env, level)
-            try env.unify(condTy, .bool)
-            let thenTy = try thenExpr.infer(env, level)
+        case let .If(cond, then, else_, _):
+            _ = try cond.infer(env, level, expectedTy: .bool)
             
-            if let elseExpr {
-                _ = try elseExpr.infer(env, level, expectedTy: thenTy)
+            var thenTy = Ty.unit
+            let thenEnv = env.child()
+            let elseEnv = env.child()
+            
+            for stmt in then {
+                try stmt.infer(thenEnv, level)
             }
             
-            tau = elseExpr == nil ? .unit : thenTy
+            for stmt in then {
+                try stmt.infer(elseEnv, level)
+            }
+            
+            if case let .Expr(lastThenExpr) = then.last {
+                thenTy = lastThenExpr.ty
+            }
+            
+            if case let .Expr(lastElseExpr) = else_.last {
+                try env.unify(thenTy, lastElseExpr.ty)
+            }
+            
+            
+            tau = thenTy
         case let .UnaryOp(op, expr, _):
             let exprTy = try expr.infer(env, level)
             
@@ -239,9 +254,9 @@ extension CoreExpr {
             }
             
             enumName.ref = enum_.name
-            let enumTy = Ty.const(enum_.name, [])
-            let associatedTy = enum_.mapping[variantName]!.ty ?? .unit
-            _ = try val?.infer(env, level, expectedTy: associatedTy) ?? .unit
+            let (subst, enumTy) = enum_.instantiate(level: level)
+            let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst) ?? .unit
+            _ = try val?.infer(env, level, expectedTy: associatedTy)
             try env.unify(enumTy, ty)
             tau = ty
         case let .BuiltInCall(name, args, _):

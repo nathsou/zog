@@ -82,6 +82,20 @@ enum AssignmentOperator: CustomStringConvertible {
     }
 }
 
+extension Array where Array.Element: CustomStringConvertible {
+    func sepBy(_ separator: String) -> String {
+        return map({ String(describing: $0) }).joined(separator: separator)
+    }
+    
+    func commas() -> String {
+        return sepBy(", ")
+    }
+    
+    func newlines() -> String {
+        return sepBy("\n")
+    }
+}
+
 func indent(_ str: CustomStringConvertible) -> String {
     return String(describing: str)
         .split(separator: "\n")
@@ -106,7 +120,7 @@ indirect enum Expr: CustomStringConvertible {
     case Fun(args: [(Pattern, Ty?)], retTy: Ty?, body: Expr, isIterator: Bool)
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
-    case If(cond: Expr, thenExpr: Expr, elseExpr: Expr?)
+    case If(cond: Expr, then: [Stmt], else_: [Stmt])
     case Assignment(Expr, AssignmentOperator, Expr)
     case Tuple([Expr])
     case UseIn(pat: Pattern, ty: Ty?, val: Expr, rhs: Expr)
@@ -116,7 +130,7 @@ indirect enum Expr: CustomStringConvertible {
     case Pipeline(arg1: Expr, f: String, remArgs: [Expr])
     case Raw(js: String)
     case Match(Expr, cases: [(Pattern, Expr)])
-    case Variant(typeName: String?, variantName: String, val: Expr?)
+    case Variant(typeName: String?, variantName: String, args: [Expr])
     case BuiltInCall(String, [Expr])
 
     public var description: String {
@@ -136,7 +150,7 @@ indirect enum Expr: CustomStringConvertible {
             if args.count == 1, case let (arg, ty) = args[0], ty == nil {
                 res = "\(arg)\(ann(retTy)) => \(body)"
             } else {
-                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).joined(separator: ", ")))\(ann(retTy)) => \(body)"
+                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).commas())\(ann(retTy)) => \(body)"
             }
             
             if isIterator {
@@ -145,7 +159,7 @@ indirect enum Expr: CustomStringConvertible {
                 return res
             }
         case let .Call(f, args):
-            return "\(f)(\(args.map({ "\($0)" }).joined(separator: ", ")))"
+            return "\(f)(\(args.commas()))"
         case let .Block(stmts, ret):
             if let ret {
                 if stmts.isEmpty {
@@ -156,35 +170,39 @@ indirect enum Expr: CustomStringConvertible {
             } else {
                 return "{\n\(stmts.map(indent).joined(separator: "\n"))\n}"
             }
-        case let .If(cond, thenExpr, nil):
-            return "if \(cond) \(thenExpr)"
-        case let .If(cond, thenExpr, elseExpr?):
-            return "if \(cond) \(thenExpr) else \(elseExpr)"
+        case let .If(cond, then, else_) where else_.isEmpty:
+            return "if \(cond) {\n\(then.newlines())\n}"
+        case let .If(cond, then, else_):
+            return "if \(cond) {\n\(then.newlines())\n} else {\n\(else_.newlines())\n}"
         case let .Assignment(lhs, op, rhs):
             return "\(lhs) \(op) \(rhs)"
         case let .Tuple(exprs):
-            return "(\(exprs.map({ "\($0)" }).joined(separator: ", ")))"
+            return "(\(exprs.commas()))"
         case let .UseIn(pat, ty, val, rhs):
             return "use \(pat)\(ann(ty)) = \(val) in \(rhs)"
         case let .Array(elems):
-            return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
+            return "[\(elems.commas())]"
         case let .Record(fields):
             let sep = fields.count > 4 ? ",\n" : ", "
             return "{ \(fields.map({ (field, val) in "\(field): \(val)" }).joined(separator: sep)) }"
         case let .RecordSelect(record, field):
             return "\(record).\(field)"
         case let .Pipeline(arg1, f, remArgs):
-            return "\(arg1)->\(f)(\(remArgs.map({ "\($0)" }).joined(separator: ", ")))"
+            return "\(arg1)->\(f)(\(remArgs.commas()))"
         case let .Raw(js):
             return "raw {\n \(indent(js)) \n}"
         case let .Match(expr, cases):
             return "match \(expr) {\n\(cases.map({ (pat, body) in indent("\(pat) => \(body)") }).joined(separator: "\n"))\n}"
-        case let .Variant(typeName, variantName, nil):
+        case let .Variant(nil, variantName, args) where args.isEmpty:
+            return variantName
+        case let .Variant(typeName, variantName, args) where args.isEmpty:
             return "\(typeName ?? "").\(variantName)"
-        case let .Variant(typeName, variantName, val):
-            return "\(typeName ?? "").\(variantName) \(val!)"
+        case let .Variant(nil, variantName, args):
+            return "\(variantName)(\(args.commas()))"
+        case let .Variant(typeName?, variantName, args):
+            return "\(typeName).\(variantName)(\(args.commas()))"
         case let .BuiltInCall(name, args):
-            return "@\(name)(\(args.map({ "\($0)" }).joined(separator: ", ")))"
+            return "@\(name)(\(args.commas()))"
         }
     }
     
@@ -208,8 +226,12 @@ indirect enum Expr: CustomStringConvertible {
                 res = .Call(f: aux(fun), args: args.map(aux))
             case let .Block(stmts, ret):
                 res = .Block(stmts.map({ $0.rewrite(with: f) }), ret: ret.map(aux))
-            case let .If(cond, thenExpr, elseExpr):
-                res = .If(cond: aux(cond), thenExpr: aux(thenExpr), elseExpr: elseExpr.map(aux))
+            case let .If(cond, then, else_):
+                res = .If(
+                    cond: aux(cond),
+                    then: then.map({ $0.rewrite(with: f) }),
+                    else_: else_.map({ $0.rewrite(with: f) })
+                )
             case let .Assignment(lhs, op, rhs):
                 res = .Assignment(aux(lhs), op, aux(rhs))
             case let .Tuple(elems):
@@ -228,8 +250,8 @@ indirect enum Expr: CustomStringConvertible {
                 res = .Raw(js: js)
             case let .Match(subject, cases):
                 res = .Match(aux(subject), cases: cases.map({ (pat, body) in (pat, aux(body)) }))
-            case let .Variant(typeName, variantName, val):
-                res = .Variant(typeName: typeName, variantName: variantName, val: val.map(aux))
+            case let .Variant(typeName, variantName, args):
+                res = .Variant(typeName: typeName, variantName: variantName, args: args.map(aux))
             case let .BuiltInCall(name, args):
                 res = .BuiltInCall(name, args.map(aux))
             }
@@ -255,6 +277,7 @@ indirect enum Expr: CustomStringConvertible {
 enum Stmt: CustomStringConvertible {
     case Expr(Expr)
     case Let(mut: Bool, pat: Pattern, ty: Ty?, val: Expr)
+    indirect case If(cond: Expr, then: [Stmt], else_: [Stmt]?)
     indirect case While(cond: Expr, body: [Stmt])
     indirect case For(pat: Pattern, iterator: Expr, body: [Stmt])
     case Return(Expr?)
@@ -270,12 +293,16 @@ enum Stmt: CustomStringConvertible {
             return "let \(pat)\(ann(ty)) = \(val)"
         case let .Let(mut: true, pat, ty, val):
             return "mut \(pat)\(ann(ty)) = \(val)"
+        case let .If(cond, then, nil):
+            return "if \(cond) {\n\(then.newlines())\n}"
+        case let .If(cond, then, else_?):
+            return "if \(cond) {\n\(then.newlines())\n} else {\n\(else_.newlines())\n}"
         case let .While(cond, body):
             return
-                "while \(cond) {\n\(body.map(indent).joined(separator: "\n"))\n}"
+                "while \(cond) {\n\(body.map(indent).newlines())\n}"
         case let .For(pat, iterator, body):
             return
-                "for \(pat) in \(iterator) {\n\(body.map(indent).joined(separator: "\n"))\n}"
+                "for \(pat) in \(iterator) {\n\(body.map(indent).newlines())\n}"
         case .Return(nil):
             return "return"
         case let .Return(.some(ret)):
@@ -298,6 +325,8 @@ enum Stmt: CustomStringConvertible {
                 return .Expr(f(expr))
             case let .Let(mut, pat, ty, val):
                 return .Let(mut: mut, pat: pat, ty: ty, val: f(val))
+            case let .If(cond, then, else_):
+                return .If(cond: f(cond), then: then.map(aux), else_: else_.map({ $0.map(aux) }))
             case let .While(cond, body):
                 return .While(cond: f(cond), body: body.map(aux))
             case let .For(pat, iterator, body):
@@ -332,13 +361,13 @@ enum Decl: CustomStringConvertible {
         case let .TypeAlias(name, args, ty):
             let argsFmt = args
                 .map({ TyVar.showTyVarId($0).lowercased() })
-                .joined(separator: ", ")
+                .commas()
             
             return "type \(name)<\(argsFmt)> = \(ty)"
         case let .Enum(name, args, variants):
             let variantsFmt = variants
                 .map({ (name, ty) in ty != nil ? "\(name) \(ty!)" : name })
-                .joined(separator: "\n")
+                .newlines()
             
             if args.isEmpty {
                 return "enum \(name) {\n\(variantsFmt)\n}"
@@ -346,11 +375,11 @@ enum Decl: CustomStringConvertible {
             
             let argsFmt = args
                 .map({ TyVar.showTyVarId($0).lowercased() })
-                .joined(separator: ", ")
+                .commas()
             
             return "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
         case let .Rewrite(ruleName, args, rhs):
-            return "rewrite \(ruleName)(\(args.joined(separator: ", "))) -> \(rhs)"
+            return "rewrite \(ruleName)(\(args.commas())) -> \(rhs)"
         }
     }
 }
@@ -361,7 +390,7 @@ enum Pattern: CustomStringConvertible {
     case literal(Literal)
     indirect case tuple([Pattern])
     indirect case record([(String, Pattern?)])
-    indirect case variant(enumName: Ref<String?>, variant: String, Pattern?)
+    indirect case variant(enumName: Ref<String?>, variant: String, [Pattern])
     
     public var description: String {
         switch self {
@@ -372,15 +401,15 @@ enum Pattern: CustomStringConvertible {
         case let .literal(lit):
             return "\(lit)"
         case let .tuple(patterns):
-            return "(\(patterns.map({ p in "\(p)" }).joined(separator: ", ")))"
+            return "(\(patterns.map({ p in "\(p)" }).commas()))"
         case let .record(entries):
-            return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).joined(separator: ", ")) }"
-        case let .variant(_, name, pat):
-            if let pat {
-                return "\(name) \(pat)"
-            } else {
+            return "{ \(entries.map({ (k, p) in p == nil ? k : "\(k): \(p!)" }).commas()) }"
+        case let .variant(_, name, patterns):
+            if patterns.isEmpty {
                 return name
             }
+            
+            return "\(name)(\(patterns.commas()))"
         }
     }
 }

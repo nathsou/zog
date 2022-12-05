@@ -216,8 +216,8 @@ extension Ty {
             switch v.ref {
             case let .link(to):
                 return to.simplified()
-            default:
-                fatalError("encountered type variable in Ty.simplified()")
+            case let .unbound(id, _), let .generic(id):
+                return SimplifiedTy(ctor: "var", args: [SimplifiedTy(ctor: "\(id)", args: [])])
             }
         case let .const(ctor, args):
             return SimplifiedTy(ctor: ctor, args: args.map({ $0.simplified() }))

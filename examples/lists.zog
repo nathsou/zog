@@ -1,7 +1,7 @@
 let print: a => () = raw { console.log }
 let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
 
-enum List { Nil, Cons(num, List) }
+enum List<a> { Nil, Cons(a, List<a>) }
 
 let lst = Cons(1, Cons(2, Cons(3, Nil)))
 

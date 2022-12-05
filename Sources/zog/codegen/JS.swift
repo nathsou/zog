@@ -30,6 +30,14 @@ indirect enum JSExpr: CustomStringConvertible {
     case objectPattern([(String, JSExpr?)])
     case raw(String)
     
+    func wrap() -> JSExpr {
+        if case .object(_) = self {
+            return .parens(self)
+        }
+        
+        return self
+    }
+    
     public var description: String {
         switch self {
         case let .boolean(q): return q ? "true" : "false"
@@ -47,12 +55,8 @@ indirect enum JSExpr: CustomStringConvertible {
         case let .closure(args, stmts):
             let argsFmt = args.map({ "\($0)" }).joined(separator: ", ")
             
-            if stmts.count == 1, case .return_(let ret) = stmts.last, ret != nil {
-                if case .object(_) = ret {
-                   return "(\(argsFmt)) => (\(ret!))"
-                } else {
-                    return "(\(argsFmt)) => \(ret!)"
-                }
+            if stmts.count == 1, case .return_(let ret?) = stmts.last {
+                return "(\(argsFmt)) => \(ret.wrap())"
             }
             
             return "(\(argsFmt)) => {\n\(stmts.map(indent).joined(separator: "\n"))\n}"
@@ -68,7 +72,8 @@ indirect enum JSExpr: CustomStringConvertible {
         case let .binaryOperation(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
         case let .ternary(cond, .boolean(true), .boolean(false)): return "\(cond)"
         case let .ternary(cond, .boolean(false), .boolean(true)): return "!\(JSExpr.parens(cond))"
-        case let .ternary(cond, thenExpr, elseExpr): return "\(cond) ? \(thenExpr) : \(elseExpr)"
+        case let .ternary(cond, thenExpr, elseExpr):
+            return "\(cond) ? \(thenExpr.wrap()) : \(elseExpr.wrap())"
         case let .assignment(lhs, op, rhs): return "\(lhs) \(op) \(rhs)"
         case let .array(elems): return "[\(elems.map({ "\($0)" }).joined(separator: ", "))]"
         case let .arraySubscript(elems, index): return "\(elems)[\(index)]"
@@ -106,9 +111,9 @@ enum JSStmt: CustomStringConvertible {
             } else {
                 return "\(mut ? "let" : "const") \(name) = \(val);"
             }
-        case let .if_(cond, then, else_) where else_ != nil:
+        case let .if_(cond, then, else_?) where !else_.isEmpty:
             let thenFmt = "{\n\(then.map(indent).joined(separator: "\n"))\n}"
-            let elseFmt = "{\n\(else_!.map(indent).joined(separator: "\n"))\n}"
+            let elseFmt = "{\n\(else_.map(indent).joined(separator: "\n"))\n}"
             return "if (\(cond)) \(thenFmt) else \(elseFmt)"
         case let .if_(cond, then, _):
             return "if (\(cond)) \("{\n\(then.map(indent).joined(separator: "\n"))\n}")"

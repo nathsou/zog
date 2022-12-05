@@ -32,7 +32,7 @@ indirect enum CoreExpr {
     case Fun(args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, isIterator: Bool, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
-    case If(cond: CoreExpr, thenExpr: CoreExpr, elseExpr: CoreExpr?, ty: Ty)
+    case If(cond: CoreExpr, then: [CoreStmt], else_: [CoreStmt], ty: Ty)
     case Assignment(CoreExpr, AssignmentOperator, CoreExpr, ty: Ty)
     case Tuple([CoreExpr], ty: Ty)
     case Array([CoreExpr], ty: Ty)
@@ -103,11 +103,11 @@ extension Expr {
             return .Call(f: f.core(ctx, lvl), args: args.map({ $0.core(ctx, lvl) }), ty: ty())
         case let .Block(stmts, ret):
             return .Block(stmts.map({ $0.core(ctx, lvl) }), ret: ret.map({ $0.core(ctx, lvl) }), ty: ty())
-        case let .If(cond, thenExpr, elseExpr):
+        case let .If(cond, then, else_):
             return .If(
                 cond: cond.core(ctx, lvl),
-                thenExpr: thenExpr.core(ctx, lvl),
-                elseExpr: elseExpr.map({ $0.core(ctx, lvl) }),
+                then: then.map({ $0.core(ctx, lvl) }),
+                else_: else_.map({ $0.core(ctx, lvl) }),
                 ty: ty()
             )
         case let .Assignment(lhs, op, rhs):
@@ -135,7 +135,18 @@ extension Expr {
                 cases: cases.map({ (pat, body) in (pat.core(), body.core(ctx, lvl)) }),
                 ty: ty()
             )
-        case let .Variant(enumName, variantName, val):
+        case let .Variant(enumName, variantName, args):
+            let val: Expr?
+            
+            switch args.count {
+            case 0:
+                val = nil
+            case 1:
+                val = args[0]
+            default:
+                val = .Tuple(args)
+            }
+            
             return .Variant(
                 enumName: Ref(enumName),
                 variantName: variantName,
@@ -153,9 +164,9 @@ extension Expr {
 enum CoreStmt {
     case Expr(CoreExpr)
     case Let(mut: Bool, pat: CorePattern, ty: Ty?, val: CoreExpr)
+    indirect case If(cond: CoreExpr, then: [CoreStmt], else_: [CoreStmt]?)
     indirect case While(cond: CoreExpr, body: [CoreStmt])
     indirect case For(pat: CorePattern, iterator: CoreExpr, body: [CoreStmt])
-    indirect case If(cond: CoreExpr, then: [CoreStmt], else_: [CoreStmt]?)
     case Return(CoreExpr?)
     case Yield(CoreExpr)
     case Break
@@ -168,6 +179,12 @@ extension Stmt {
             return .Expr(expr.core(ctx, lvl))
         case let .Let(mut, pat, ty, val):
             return .Let(mut: mut, pat: pat.core(), ty: ty, val: val.core(ctx, lvl + 1))
+        case let .If(cond, then, else_):
+            return .If(
+                cond: cond.core(ctx, lvl),
+                then: then.map({ $0.core(ctx, lvl) }),
+                else_: else_.map({ $0.map({ $0.core(ctx, lvl) }) })
+            )
         case let .While(cond, body):
             return .While(cond: cond.core(ctx, lvl), body: body.map({ $0.core(ctx, lvl) }))
         case let .For(pat, iterator, body):
@@ -231,7 +248,7 @@ enum CorePattern: CustomStringConvertible {
                     return ty
                 }
                 
-                let ty = Ty.fresh(level: level)
+                let ty = ann ?? Ty.fresh(level: level)
                 vars[name] = ty
                 return ty
             case let .literal(lit):
@@ -280,9 +297,12 @@ enum CorePattern: CustomStringConvertible {
                     enum_ = try env.lookupEnumUnique(variants: [variantName])
                 }
                 
-                _ = try pat.map({ try go($0, enum_.mapping[variantName]!.ty) })
+                let (subst, enumTy) = enum_.instantiate(level: level)
+                let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst)
                 
-                return .const(enum_.name, [])
+                _ = try pat.map({ try go($0, associatedTy) })
+                
+                return enumTy
             }
         }
         
@@ -332,7 +352,18 @@ extension Pattern {
             return .tuple(args.map({ p in p.core() }))
         case let .record(entries):
             return .record(entries.map({ (k, p) in (k, p?.core()) }))
-        case let .variant(enumName, variant, pat):
+        case let .variant(enumName, variant, args):
+            let pat: Pattern?
+            
+            switch args.count {
+            case 0:
+                pat = nil
+            case 1:
+                pat = args[0]
+            default:
+                pat = .tuple(args)
+            }
+            
             return .variant(enumName: enumName, variant: variant, pat.map({ $0.core() }))
         }
     }

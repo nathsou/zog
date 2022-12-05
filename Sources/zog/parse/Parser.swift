@@ -235,10 +235,8 @@ class Parser {
         }
     }
     
-    // typeAlias -> 'type' upperIdentifier '<' commas(loweIdentifier) '>' '=' ty
-    func typeAliasDecl() throws -> Decl {
-        let name = try upperIdentifier()
-        pushTyParamScope()
+    // typeParams -> '<' commas(loweIdentifier) '>'
+    func typeParams() throws -> [TyVarId] {
         var args = [TyVarId]()
         if match(.symbol(.lss)) {
             let names = try commas(lowerIdentifier)
@@ -247,6 +245,15 @@ class Parser {
             }
             try consume(.symbol(.gtr))
         }
+        
+        return args
+    }
+    
+    // typeAlias -> 'type' upperIdentifier '<' commas(loweIdentifier) '>' '=' ty
+    func typeAliasDecl() throws -> Decl {
+        let name = try upperIdentifier()
+        pushTyParamScope()
+        let args = try typeParams()
         try consume(.symbol(.eq))
         let ty = try type()
         popTyParamScope()
@@ -255,9 +262,11 @@ class Parser {
         return .TypeAlias(name: name, args: args, ty: ty)
     }
     
-    // enum -> 'enum' upperIdentifier '{' (identifier ty?)* '}'
+    // enum -> 'enum' upperIdent typeParams '{' (ident ty?)* '}'
     func enumDecl() throws -> Decl {
         let name = try upperIdentifier()
+        pushTyParamScope()
+        let args = try typeParams()
         var variants = [(name: String, ty: Ty?)]()
         
         try consume(.symbol(.lcurlybracket))
@@ -272,10 +281,12 @@ class Parser {
             }
         }
         
+        popTyParamScope()
+        
         try consume(.symbol(.rcurlybracket))
         try consume(.symbol(.semicolon))
         
-        return .Enum(name: name, args: [], variants: variants)
+        return .Enum(name: name, args: args, variants: variants)
     }
     
     // rewrite -> 'rewrite' identifier '(' identifier* ')' '->' expr
@@ -430,20 +441,36 @@ class Parser {
         return try ifExpr()
     }
 
-    // if -> 'if' expr expr 'else' expr | match
+    // if -> 'if' expr '{' expr '}' 'else' '{' expr '}' | match
     func ifExpr() throws -> Expr {
         if match(.keyword(.If)) {
             let cond = try expression()
-            let thenExpr = try expression()
-            let elseExpr: Expr?
+            var then = [Stmt]()
+            var else_ = [Stmt]()
+            
+            try consume(.symbol(.lcurlybracket))
+            while let stmt = attempt(statementThrowing) {
+                then.append(stmt)
+            }
+            
+            if let ret = attempt(expression) {
+                then.append(.Expr(ret))
+            }
+            try consume(.symbol(.rcurlybracket))
             
             if match(.keyword(.Else)) {
-                elseExpr = try expression()
-            } else {
-                elseExpr = nil
+                try consume(.symbol(.lcurlybracket))
+                while let stmt = attempt(statementThrowing) {
+                    else_.append(stmt)
+                }
+                
+                if let ret = attempt(expression) {
+                    else_.append(.Expr(ret))
+                }
+                try consume(.symbol(.rcurlybracket))
             }
 
-            return .If(cond: cond, thenExpr: thenExpr, elseExpr: elseExpr)
+            return .If(cond: cond, then: then, else_: else_)
         }
 
         return try matchExpr()
@@ -877,9 +904,17 @@ class Parser {
         }
         
         let variantName = try upperIdentifier()
-        let val = attempt(expression)
         
-        return .Variant(typeName: typeName, variantName: variantName, val: val)
+        let args: [Expr]
+        
+        if match(.symbol(.lparen)) {
+            args = try commas(expression)
+            try consume(.symbol(.rparen))
+        } else {
+            args = []
+        }
+        
+        return .Variant(typeName: typeName, variantName: variantName, args: args)
     }
     
     // builtInCall -> '@' identifier '(' commas(expr) ')'
@@ -1097,15 +1132,25 @@ class Parser {
     }
     
     func variantPattern(name: String) throws -> Pattern {
+        let enumName: String?
+        let variantName: String
+        var patterns: [Pattern]
+        
         if match(.symbol(.dot)) {
-            let enumName = name
-            let variantName = try upperIdentifier()
-            let pat = attempt(pattern)
-            
-            return .variant(enumName: Ref(enumName), variant: variantName, pat)
+            enumName = name
+            variantName = try upperIdentifier()
+        } else {
+            enumName = nil
+            variantName = name
         }
         
-        let pat = attempt(pattern)
-        return .variant(enumName: Ref(nil), variant: name, pat)
+        if match(.symbol(.lparen)) {
+            patterns = try commas(pattern)
+            try consume(.symbol(.rparen))
+        } else {
+            patterns = []
+        }
+        
+        return .variant(enumName: Ref(enumName), variant: variantName, patterns)
     }
 }
