@@ -208,7 +208,19 @@ struct Lexer {
             case "!": return .symbol(match("=") ? .bangeq : .bang)
             case "<": return .symbol(match("=") ? .leq : .lss)
             case ">": return .symbol(match("=") ? .geq : .gtr)
-            case "-": return .symbol(match(">") ? .thinArrow : match("=") ? .minuseq : .minus)
+            case "-":
+                if match(">") {
+                    // enable pipeline operator chaining
+                    if case .symbol(.semicolon) = tokens.last?.token {
+                        tokens.removeLast()
+                    }
+                    
+                    return .symbol(.thinArrow)
+                } else if match("=") {
+                    return .symbol(.minuseq)
+                } else {
+                    return .symbol(.minus)
+                }
             case ".": return .symbol(match(".") ? match(".") ? .dotdotdot : .dotdot : .dot)
             case "+": return .symbol(match("=") ? .pluseq : match("+") ? .plusplus : .plus)
             case "*": return .symbol(match("=") ? .stareq : .star)
