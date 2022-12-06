@@ -20,7 +20,7 @@ public struct zog {
                     let env = TypeEnv()
                     
                     func comment(_ text: CustomStringConvertible) -> String {
-                        return String(describing: env).split(separator: "\n").map({ "// \($0)" }).joined(separator: "\n")
+                        return String(describing: env).split(separator: "\n").map({ "// \($0)" }).newlines()
                     }
                     
                     try core.forEach({ decl in try decl?.infer(env, 0) })

@@ -90,24 +90,24 @@ final class inferenceTests: XCTestCase {
             "let b = id(\"yo!\")"
         ])
         
-        XCTAssertEqual(env1.vars["id"]?.canonical, "a => a")
-        XCTAssertEqual(env1.vars["a"], .num)
-        XCTAssertEqual(env1.vars["b"], .str)
+        XCTAssertEqual(env1.vars["id"]!.ty.canonical, "a => a")
+        XCTAssertEqual(env1.vars["a"]?.ty, .num)
+        XCTAssertEqual(env1.vars["b"]?.ty, .str)
         
         let env2 = try infer(statements: [
             "let fst = ((a, _)) => a",
         ])
         
-        XCTAssertEqual(env2.vars["fst"]?.canonical, "((a, b)) => a")
+        XCTAssertEqual(env2.vars["fst"]?.ty.canonical, "((a, b)) => a")
     }
     
     func testInferArrayTy() throws {
         let env1 = try infer(statements: ["let a1 = []", "mut a2 = []"])
-        XCTAssertEqual(env1.vars["a1"]?.canonical, "a[]")
-        XCTAssertEqual(env1.vars["a2"]?.canonical, "A[]")
+        XCTAssertEqual(env1.vars["a1"]!.ty.canonical, "a[]")
+        XCTAssertEqual(env1.vars["a2"]!.ty.canonical, "A[]")
         
         let env2 = try infer(statements: ["let array = [1, 2, 3]"])
-        XCTAssertEqual(env2.vars["array"]?.canonical, "num[]")
+        XCTAssertEqual(env2.vars["array"]!.ty.canonical, "num[]")
         
         XCTAssertThrowsError(try infer(statements: ["let array = [1, true, ()]"]))
     }
@@ -132,14 +132,14 @@ final class inferenceTests: XCTestCase {
             "let a = Plus"
         ])
         
-        XCTAssertEqual(env1.vars["a"], .const("BinaryOp", []))
+        XCTAssertEqual(env1.vars["a"]!.ty, .const("BinaryOp", []))
         
         let env2 = try infer(statements: [
             "enum List { Nil, Cons (num, List) }",
             "let list = Cons (1, Cons (2, Cons (3, Nil)))"
         ])
         
-        XCTAssertEqual(env2.vars["list"]?.canonical, "List")
+        XCTAssertEqual(env2.vars["list"]!.ty.canonical, "List")
         
         let env3 = try infer(statements: [
             "enum BinaryOp { Plus, Minus }",

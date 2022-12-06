@@ -207,21 +207,24 @@ extension Stmt {
 }
 
 enum CoreDecl {
+    case Let(pub: Bool, mut: Bool, pat: CorePattern, ty: Ty?, val: CoreExpr)
     case Stmt(CoreStmt)
-    case TypeAlias(name: String, args: [TyVarId], ty: Ty)
-    case Enum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
+    case TypeAlias(pub: Bool, name: String, args: [TyVarId], ty: Ty)
+    case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
 }
 
 extension Decl {
     func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreDecl? {
         switch self {
+        case let .Let(pub, mut, pat, ty, val):
+            return .Let(pub: pub, mut: mut, pat: pat.core(), ty: ty, val: val.core(ctx, lvl + 1))
         case let .Stmt(stmt):
             return .Stmt(stmt.core(ctx, lvl))
-        case let .TypeAlias(name, args, ty):
-            return .TypeAlias(name: name, args: args, ty: ty)
-        case let .Enum(name, args, variants):
-            return .Enum(name: name, args: args, variants: variants)
-        case let .Rewrite(name, args, rhs):
+        case let .TypeAlias(pub, name, args, ty):
+            return .TypeAlias(pub: pub, name: name, args: args, ty: ty)
+        case let .Enum(pub, name, args, variants):
+            return .Enum(pub: pub, name: name, args: args, variants: variants)
+        case let .Rewrite(_, name, args, rhs):
             ctx.declareRule(name: name, args: args, rhs: rhs)
             return nil
         }
@@ -290,7 +293,7 @@ enum CorePattern: CustomStringConvertible {
                     enumName.ref = actualEnumName
                 }
                 
-                let enum_: Enum
+                let enum_: EnumVariants
                 if let enumName = enumName.ref {
                     enum_ = env.enums[enumName]!.variants
                 } else {

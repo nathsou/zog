@@ -38,6 +38,14 @@ indirect enum JSExpr: CustomStringConvertible {
         return self
     }
     
+    func isUndefined() -> Bool {
+        if case .undefined = self {
+            return true
+        }
+        
+        return false
+    }
+    
     public var description: String {
         switch self {
         case let .boolean(q): return q ? "true" : "false"
@@ -92,7 +100,7 @@ indirect enum JSExpr: CustomStringConvertible {
 
 enum JSStmt: CustomStringConvertible {
     case expr(JSExpr)
-    case varDecl(mut: Bool, JSExpr, JSExpr)
+    case varDecl(export: Bool, const: Bool, JSExpr, JSExpr)
     case whileLoop(cond: JSExpr, body: [JSStmt])
     case forOfLoop(pat: JSExpr, in: JSExpr, body: [JSStmt])
     case forLoop(name: String, start: JSExpr, end: JSExpr, step: JSExpr, body: [JSStmt])
@@ -105,12 +113,8 @@ enum JSStmt: CustomStringConvertible {
     public var description: String {
         switch self {
         case let .expr(expr): return "\(expr);"
-        case let .varDecl(mut, name, val):
-            if case .undefined = val {
-                return "\(mut ? "let" : "const") \(name);"
-            } else {
-                return "\(mut ? "let" : "const") \(name) = \(val);"
-            }
+        case let .varDecl(export, const, name, val):
+            return "export ".when(export) + "\(const ? "const" : "let") \(name)" + " = \(val)".when(!val.isUndefined()) + ";"
         case let .if_(cond, then, else_?) where !else_.isEmpty:
             let thenFmt = "{\n\(then.map(indent).joined(separator: "\n"))\n}"
             let elseFmt = "{\n\(else_.map(indent).joined(separator: "\n"))\n}"

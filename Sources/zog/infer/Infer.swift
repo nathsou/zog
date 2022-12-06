@@ -27,8 +27,8 @@ extension CoreExpr {
         case let .Literal(lit, _):
             tau = lit.ty
         case let .Var(name, _):
-            if let ty = env.lookup(name) {
-                tau = ty.instantiate(level: level)
+            if let info = env.lookup(name) {
+                tau = info.ty.instantiate(level: level)
             } else {
                 throw TypeError.unknownVariable(name)
             }
@@ -80,6 +80,7 @@ extension CoreExpr {
             _ = try cond.infer(env, level, expectedTy: .bool)
             
             var thenTy = Ty.unit
+            var elseTy = Ty.unit
             let thenEnv = env.child()
             let elseEnv = env.child()
             
@@ -96,9 +97,10 @@ extension CoreExpr {
             }
             
             if case let .Expr(lastElseExpr) = else_.last {
-                try env.unify(thenTy, lastElseExpr.ty)
+                elseTy = lastElseExpr.ty
             }
             
+            try env.unify(thenTy, elseTy)
             
             tau = thenTy
         case let .UnaryOp(op, expr, _):
@@ -146,11 +148,11 @@ extension CoreExpr {
             case .plusEq, .minusEq, .timesEq, .divideEq:
                 try env.unify(lhsTy, .num)
                 try env.unify(rhsTy, .num)
-                tau = .num
             case .eq:
                 try env.unify(lhsTy, rhsTy)
-                tau = rhsTy
             }
+            
+            tau = .unit
         case let .Block(stmts, ret, ty):
             let blockEnv = env.child()
             
@@ -242,7 +244,7 @@ extension CoreExpr {
             
             tau = ty
         case let .Variant(enumName, variantName, val, ty):
-            let enum_: Enum
+            let enum_: EnumVariants
             if let enumName = enumName.ref {
                 enum_ = env.enums[enumName]!.variants
             } else {
@@ -294,31 +296,58 @@ extension CoreExpr {
     }
 }
 
+func inferLet(
+    pub: Bool,
+    mut: Bool,
+    pattern: CorePattern,
+    annotation: Ty?,
+    value: CoreExpr,
+    env: TypeEnv,
+    level: UInt
+) throws {
+    try pattern.checkIfInfallible()
+    let (patternTy, patternVars) = try pattern.ty(
+        level: level + 1,
+        env: env,
+        expectedTy: annotation
+    )
+    
+    let rhsEnv = env.child()
+    
+    for (variable, ty) in patternVars {
+        try rhsEnv.declare(variable, ty: ty, pub: pub)
+    }
+    
+    let valTy = try value.infer(rhsEnv, level + 1, expectedTy: annotation)
+    
+    try env.unify(patternTy, valTy)
+    
+    for (name, ty) in patternVars {
+        // https://en.wikipedia.org/wiki/Value_restriction
+        let genTy = !mut ? ty.generalize(level: level) : ty
+        try env.declare(
+            name,
+            ty: genTy,
+            pub: pub
+        )
+    }
+}
+
 extension CoreStmt {
     func infer(_ env: TypeEnv, _ level: UInt) throws {
         switch self {
         case let .Expr(expr):
             _ = try expr.infer(env, level)
-        case let .Let(isMut, pat, ann, val):
-            try pat.checkIfInfallible()
-            let (patternTy, patternVars) = try pat.ty(level: level + 1, env: env, expectedTy: ann)
-            let rhsEnv = env.child()
-            
-            for (variable, ty) in patternVars {
-                try rhsEnv.declare(variable, ty: ty)
-            }
-            
-            let valTy = try val.infer(rhsEnv, level + 1, expectedTy: ann)
-            
-            try env.unify(patternTy, valTy)
-            
-            for (name, ty) in patternVars {
-                // https://en.wikipedia.org/wiki/Value_restriction
-                try env.declare(
-                    name,
-                    ty: !isMut ? ty.generalize(level: level) : ty
-                )
-            }
+        case let .Let(mut, pat, ann, val):
+            try inferLet(
+                pub: false,
+                mut: mut,
+                pattern: pat,
+                annotation: ann,
+                value: val,
+                env: env,
+                level: level
+            )
         case let .For(pat, iterator, body):
             let iterTy = try iterator.infer(env, level)
             let iterItemTy: Ty
@@ -395,12 +424,22 @@ extension CoreStmt {
 extension CoreDecl {
     func infer(_ env: TypeEnv, _ level: UInt) throws {
         switch self {
+        case let .Let(pub, mut, pat, ann, val):
+            try inferLet(
+                pub: pub,
+                mut: mut,
+                pattern: pat,
+                annotation: ann,
+                value: val,
+                env: env,
+                level: level
+            )
         case let .Stmt(stmt):
             try stmt.infer(env, level)
-        case let .TypeAlias(name, args, ty):
-            env.declareAlias(name: name, args: args, ty: ty)
-        case let .Enum(name, args, variants):
-            env.declareEnum(name: name, args: args, variants: variants)
+        case let .TypeAlias(pub, name, args, ty):
+            env.declareAlias(name: name, args: args, ty: ty, pub: pub)
+        case let .Enum(pub, name, args, variants):
+            env.declareEnum(name: name, args: args, variants: variants, pub: pub)
         }
     }
 }

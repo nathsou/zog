@@ -96,11 +96,17 @@ extension Array where Array.Element: CustomStringConvertible {
     }
 }
 
+extension String {
+    func when(_ condition: Bool) -> String {
+        return condition ? self : ""
+    }
+}
+
 func indent(_ str: CustomStringConvertible) -> String {
     return String(describing: str)
         .split(separator: "\n")
         .map({ s in "    \(s)" })
-        .joined(separator: "\n")
+        .newlines()
 }
 
 func ann(_ annotation: Ty?) -> String {
@@ -150,7 +156,7 @@ indirect enum Expr: CustomStringConvertible {
             if args.count == 1, case let (arg, ty) = args[0], ty == nil {
                 res = "\(arg)\(ann(retTy)) => \(body)"
             } else {
-                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).commas())\(ann(retTy)) => \(body)"
+                res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).commas()))\(ann(retTy)) => \(body)"
             }
             
             if isIterator {
@@ -347,39 +353,42 @@ enum Stmt: CustomStringConvertible {
 }
 
 enum Decl: CustomStringConvertible {
+    case Let(pub: Bool, mut: Bool, pat: Pattern, ty: Ty?, val: Expr)
     case Stmt(Stmt)
-    case TypeAlias(name: String, args: [TyVarId], ty: Ty)
-    case Enum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
-    case Rewrite(ruleName: String, args: [String], rhs: Expr)
+    case TypeAlias(pub: Bool, name: String, args: [TyVarId], ty: Ty)
+    case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
+    case Rewrite(pub: Bool, ruleName: String, args: [String], rhs: Expr)
     
     var description: String {
         switch self {
+        case let .Let(pub, mut, pat, ty, val):
+            return "pub ".when(pub) + (mut ? "mut" : "let") + " \(pat)\(ann(ty)) = \(val)"
         case let .Stmt(stmt):
             return "\(stmt)"
-        case let .TypeAlias(name, [], ty):
-            return "type \(name) = \(ty)"
-        case let .TypeAlias(name, args, ty):
+        case let .TypeAlias(pub, name, [], ty):
+            return "pub ".when(pub) + "type \(name) = \(ty)"
+        case let .TypeAlias(pub, name, args, ty):
             let argsFmt = args
                 .map({ TyVar.showTyVarId($0).lowercased() })
                 .commas()
             
-            return "type \(name)<\(argsFmt)> = \(ty)"
-        case let .Enum(name, args, variants):
+            return "pub ".when(pub) + "type \(name)<\(argsFmt)> = \(ty)"
+        case let .Enum(pub, name, args, variants):
             let variantsFmt = variants
-                .map({ (name, ty) in ty != nil ? "\(name) \(ty!)" : name })
+                .map({ (name, ty) in ty != nil ? "\(name)(\(ty!))" : name })
                 .newlines()
             
             if args.isEmpty {
-                return "enum \(name) {\n\(variantsFmt)\n}"
+                return "enum \(name) {\n\(indent(variantsFmt))\n}"
             }
             
             let argsFmt = args
                 .map({ TyVar.showTyVarId($0).lowercased() })
                 .commas()
             
-            return "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
-        case let .Rewrite(ruleName, args, rhs):
-            return "rewrite \(ruleName)(\(args.commas())) -> \(rhs)"
+            return "pub ".when(pub) + "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
+        case let .Rewrite(pub, ruleName, args, rhs):
+            return "pub ".when(pub) + "rewrite \(ruleName)(\(args.commas())) -> \(rhs)"
         }
     }
 }

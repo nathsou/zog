@@ -26,7 +26,7 @@ struct Lexer {
     init(source: String) {
         index = 0
         startIndex = 0
-        chars = Array(source)
+        chars = Array(source) + ["\n"]
         tokens = []
     }
 

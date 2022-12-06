@@ -19,7 +19,7 @@ class TyContext {
     }
 }
 
-class Enum {
+class EnumVariants {
     let name: String
     let args: [TyVarId]
     let variants: [(name: String, ty: Ty?)]
@@ -52,10 +52,14 @@ class Enum {
 }
 
 class TypeEnv: CustomStringConvertible {
+    typealias VarInfo = (ty: Ty, pub: Bool)
+    typealias AliasInfo = (args: [TyVarId], ty: Ty, pub: Bool)
+    typealias EnumInfo = (args: [TyVarId], variants: EnumVariants, pub: Bool)
+    
     let parent: TypeEnv?
-    var vars = [String:Ty]()
-    var aliases = [String:(args: [TyVarId], ty: Ty)]()
-    var enums = [String:(args: [TyVarId], variants: Enum)]()
+    var vars = [String:VarInfo]()
+    var aliases = [String:AliasInfo]()
+    var enums = [String:EnumInfo]()
     typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
     static var functionInfoStack = [FunctionInfo]()
     
@@ -67,9 +71,9 @@ class TypeEnv: CustomStringConvertible {
         self.parent = parent
     }
     
-    func lookup(_ name: String) -> Ty? {
-        if let ty = vars[name] {
-            return ty
+    func lookup(_ name: String) -> VarInfo? {
+        if let info = vars[name] {
+            return info
         }
         
         return parent?.lookup(name)
@@ -79,19 +83,19 @@ class TypeEnv: CustomStringConvertible {
         return lookup(name) != nil
     }
     
-    func declare(_ name: String, ty: Ty) throws {
+    func declare(_ name: String, ty: Ty, pub: Bool = false) throws {
         guard vars[name] == nil else {
             throw TypeError.cannotRedeclareVariable(name)
         }
         
-        vars[name] = ty
+        vars[name] = (ty, pub)
     }
     
-    func declareAlias(name: String, args: [TyVarId], ty: Ty) {
-        aliases[name] = (args, ty)
+    func declareAlias(name: String, args: [TyVarId], ty: Ty, pub: Bool) {
+        aliases[name] = (args, ty, pub)
     }
     
-    func lookupAlias(name: String) throws -> (args: [TyVarId], ty: Ty) {
+    func lookupAlias(name: String) throws -> AliasInfo {
         if let alias = aliases[name] {
             return alias
         }
@@ -103,16 +107,16 @@ class TypeEnv: CustomStringConvertible {
         throw TypeError.couldNotResolveType(.const(name, []))
     }
     
-    func declareEnum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)]) {
-        enums[name] = (args, .init(name: name, args: args, variants: variants))
+    func declareEnum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)], pub: Bool) {
+        enums[name] = (args, .init(name: name, args: args, variants: variants), pub: pub)
     }
     
-    func lookupEnums(variants: [String]) -> [Enum] {
+    func lookupEnums(variants: [String]) -> [EnumVariants] {
         return enums.filter({ (name, enum_) in variants.allSatisfy({ variant in enum_.variants.mapping.keys.contains(variant) })
         }).map({ $0.value.variants })
     }
     
-    func lookupEnumUnique(variants: [String]) throws -> Enum {
+    func lookupEnumUnique(variants: [String]) throws -> EnumVariants {
         let matchingEnums = lookupEnums(variants: variants)
         
         if matchingEnums.isEmpty {
@@ -149,7 +153,7 @@ class TypeEnv: CustomStringConvertible {
     }
     
     public var description: String {
-        let vars = self.vars.map({ (v, ty) in indent("\(v): \(ty.canonical)") })
+        let vars = self.vars.map({ (v, info) in indent("pub ".when(info.pub) + "\(v): \(info.ty.canonical)") })
         return "{\n\(vars.joined(separator: ",\n"))\n}"
     }
 }
@@ -477,7 +481,7 @@ extension TypeEnv {
                     eqs.append(contentsOf: zip(args1, args2))
                 case let (.const(f, _), other) where !primitiveTypes.contains(f) && !enums.keys.contains(f),
                      let (other, .const(f, _)) where !primitiveTypes.contains(f) && !enums.keys.contains(f):
-                    let (_, alias) = try self.lookupAlias(name: f)
+                    let (_, alias, _) = try self.lookupAlias(name: f)
                     eqs.append((alias, other))
                 case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
                     eqs.append(contentsOf: zip(args1, args2))

@@ -138,7 +138,7 @@ extension CorePattern {
                     fatalError("expected record pattern to be associated with a record type")
                 }
             case let .variant(enumName, name, pat):
-                let enum_: Enum
+                let enum_: EnumVariants
                 if let enumName = enumName.ref {
                     enum_ = env.enums[enumName]!.variants
                 } else {

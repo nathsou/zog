@@ -1,14 +1,21 @@
+// import "std" { print }
+
 let print: _ => () = raw { console.log }
 
 enum Option<a> { None, Some(a) }
 
 enum Either<a, b> { Left(a), Right(b) }
 
+enum Result<t, e> { Ok(t), Error(e) }
+
 let isSome = opt => match opt { Some(_) => true, _ => false }
 let isNone = opt => match opt { None => true, _ => false }
 
 let isLeft = either => match either { Left(_) => true, _ => false }
 let isRight = either => match either { Right(_) => true, _ => false }
+
+let isOk = result => match result { Ok(_) => true, _ => false }
+let isError = result => match result { Error(_) => true, _ => false }
 
 let map = (opt, f) => match opt {
     Some(a) => Some(f(a))
@@ -23,6 +30,11 @@ let flatMap = (opt, f) => match opt {
 let mapEither = (either, f) => match either {
     Left(l) => Left(f(l))
     Right(r) => Right(f(r))
+}
+
+let mapError = (result, f) => match result {
+    Ok(value) => Ok(f(value))
+    Error(error) => Error(error)
 }
 
 let age = Some(24)->map(n => n * n)

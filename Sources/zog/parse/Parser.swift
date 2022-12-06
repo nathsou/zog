@@ -61,9 +61,11 @@ class Parser {
         return false
     }
 
-    func advance() {
-        if index < tokens.count {
-            index += 1
+    func advance(_ count: Int = 1) {
+        for _ in 1...count {
+            if index < tokens.count {
+                index += 1
+            }
         }
     }
 
@@ -220,19 +222,56 @@ class Parser {
     // ------ declaration ------
     
     func declaration() throws -> Decl {
+        pushTyParamScope()
+        defer { popTyParamScope() }
+        
         switch peek() {
+        case .keyword(.Let):
+            advance()
+            return try letDecl(pub: false, mut: false)
+        case .keyword(.Mut):
+            advance()
+            return try letDecl(pub: false, mut: true)
+        case .identifier("pub") where check(.keyword(.Let), lookahead: 1):
+            advance(2)
+            return try letDecl(pub: true, mut: false)
+        case .identifier("pub") where check(.keyword(.Mut), lookahead: 1):
+            advance(2)
+            return try letDecl(pub: true, mut: true)
+        case .identifier("pub") where check(.identifier("type"), lookahead: 1):
+            advance(2)
+            return try typeAliasDecl(pub: true)
         case .identifier("type") where check(.symbol(.eq), .symbol(.lss), lookahead: 2):
             advance()
-            return try typeAliasDecl()
+            return try typeAliasDecl(pub: false)
+        case .identifier("pub") where check(.identifier("enum"), lookahead: 1):
+            advance(2)
+            return try enumDecl(pub: true)
         case .identifier("enum"):
             advance()
-            return try enumDecl()
+            return try enumDecl(pub: false)
+        case .identifier("pub") where check(.identifier("rewrite"), lookahead: 1):
+            advance(2)
+            return try rewriteDecl(pub: true)
         case .identifier("rewrite"):
             advance()
-            return try rewriteDecl()
+            return try rewriteDecl(pub: false)
         default:
             return .Stmt(statement())
         }
+    }
+    
+    // letDecl -> 'pub'? ('mut' | 'let') pattern (':' ty)? '=' expr
+    func letDecl(pub: Bool, mut: Bool) throws -> Decl {
+        let pat = try pattern()
+        generalizationLevel += 1
+        let ty = try typeAnnotation()
+        try consume(.symbol(.eq))
+        let val = try expression()
+        generalizationLevel -= 1
+        try consume(.symbol(.semicolon))
+        
+        return .Let(pub: pub, mut: mut, pat: pat, ty: ty, val: val)
     }
     
     // typeParams -> '<' commas(loweIdentifier) '>'
@@ -249,23 +288,20 @@ class Parser {
         return args
     }
     
-    // typeAlias -> 'type' upperIdentifier '<' commas(loweIdentifier) '>' '=' ty
-    func typeAliasDecl() throws -> Decl {
+    // typeAlias -> 'pub'? 'type' upperIdentifier '<' commas(loweIdentifier) '>' '=' ty
+    func typeAliasDecl(pub: Bool) throws -> Decl {
         let name = try upperIdentifier()
-        pushTyParamScope()
         let args = try typeParams()
         try consume(.symbol(.eq))
         let ty = try type()
-        popTyParamScope()
         try consume(.symbol(.semicolon))
         
-        return .TypeAlias(name: name, args: args, ty: ty)
+        return .TypeAlias(pub: pub, name: name, args: args, ty: ty)
     }
     
-    // enum -> 'enum' upperIdent typeParams '{' (ident ty?)* '}'
-    func enumDecl() throws -> Decl {
+    // enum -> 'pub'? 'enum' upperIdent typeParams '{' (ident ty?)* '}'
+    func enumDecl(pub: Bool) throws -> Decl {
         let name = try upperIdentifier()
-        pushTyParamScope()
         let args = try typeParams()
         var variants = [(name: String, ty: Ty?)]()
         
@@ -281,16 +317,14 @@ class Parser {
             }
         }
         
-        popTyParamScope()
-        
         try consume(.symbol(.rcurlybracket))
         try consume(.symbol(.semicolon))
         
-        return .Enum(name: name, args: args, variants: variants)
+        return .Enum(pub: pub, name: name, args: args, variants: variants)
     }
     
-    // rewrite -> 'rewrite' identifier '(' identifier* ')' '->' expr
-    func rewriteDecl() throws -> Decl {
+    // rewrite -> 'pub'? 'rewrite' identifier '(' identifier* ')' '->' expr
+    func rewriteDecl(pub: Bool) throws -> Decl {
         let ruleName = try identifier()
         try consume(.symbol(.lparen))
         let args = try commas(identifier)
@@ -299,7 +333,7 @@ class Parser {
         let rhs = try expression()
         try consume(.symbol(.semicolon))
         
-        return .Rewrite(ruleName: ruleName, args: args, rhs: rhs)
+        return .Rewrite(pub: pub, ruleName: ruleName, args: args, rhs: rhs)
     }
     
     // ------ statements ------
@@ -545,7 +579,7 @@ class Parser {
         return lhs
     }
 
-    // fun -> 'iterator'? ('(' commas(pattern (':' type)?) ')' | pattern) '=>' expr | logicalOr
+    // fun -> 'iterator'? '(' commas(pattern (':' type)?) ')' | pattern) ')' (':' type)? '=>' expr | logicalOr
     func fun() throws -> Expr {
         if let f: Expr = attempt({
             var args = [(Pattern, Ty?)]()

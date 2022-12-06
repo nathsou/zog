@@ -95,7 +95,10 @@ extension CoreExpr {
             let newArgs = try args.map({ (arg, _) in try arg.codegen(ctx) })
             let ret = try body.codegen(funCtx)
             
-            if case .undefined = ret {} else {
+            if case .undefined = ret {
+            } else if case .unit = body.ty.deref() {
+                funCtx.statements.append(.expr(ret))
+            } else {
                 funCtx.statements.append(.return_(ret))
             }
             
@@ -201,7 +204,7 @@ extension CoreExpr {
                 )
             } else {
                 let result = JSExpr.variable(ctx.declare("result"))
-                ctx.statements.append(.varDecl(mut: true, result, .undefined))
+                ctx.statements.append(.varDecl(export: false, const: false, result, .undefined))
                 
                 let codegenBody = { (body: CoreExpr) throws -> [JSStmt] in
                     let bodyCtx = ctx.child(linear: false)
@@ -336,7 +339,7 @@ extension CoreStmt {
         case let .Let(_, pat: .any, _, val):
             return try .expr(val.codegen(ctx))
         case let .Let(mut, pat, ty: _, val):
-            return .varDecl(mut: mut, try pat.codegen(ctx), try val.codegen(ctx))
+            return .varDecl(export: false, const: !mut, try pat.codegen(ctx), try val.codegen(ctx))
         case let .If(cond, then, else_):
             let thenCtx = ctx.child(linear: false)
             try then.forEach({ stmt in thenCtx.statements.append(try stmt.codegen(thenCtx)) })
@@ -372,14 +375,14 @@ extension CoreStmt {
                     iterVar = .variable(name)
                 } else {
                     iterVar = .variable(ctx.declareUnique("elems"))
-                    ctx.statements.append(.varDecl(mut: false, iterVar, iterVal))
+                    ctx.statements.append(.varDecl(export: false, const: true, iterVar, iterVal))
                 }
                 
                 let len = JSExpr.objectAccess(iterVar, field: "length")
                 let lenVar = JSExpr.variable(ctx.declareUnique("len"))
-                ctx.statements.append(.varDecl(mut: false, lenVar, len))
+                ctx.statements.append(.varDecl(export: false, const: true, lenVar, len))
                 bodyCtx.statements.insert(
-                    .varDecl(mut: false, .variable(name), .arraySubscript(iterVar, .variable(iVar))),
+                    .varDecl(export: false, const: false, .variable(name), .arraySubscript(iterVar, .variable(iVar))),
                     at: 0
                 )
                 
@@ -410,11 +413,13 @@ extension CoreStmt {
 extension CoreDecl {
     func codegen(_ ctx: CoreContext) throws -> [JSStmt] {
         switch self {
+        case let .Let(pub, mut, pat, _, val):
+            return [.varDecl(export: pub, const: !mut, try pat.codegen(ctx), try val.codegen(ctx))]
         case let .Stmt(stmt):
             return [try stmt.codegen(ctx)]
-        case .TypeAlias(_, _, _):
+        case .TypeAlias(_, _, _, _):
             return []
-        case .Enum(_, _, _):
+        case .Enum(_, _, _, _):
             return []
         }
     }
