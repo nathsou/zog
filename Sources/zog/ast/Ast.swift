@@ -270,12 +270,11 @@ indirect enum Expr: CustomStringConvertible {
     
     func substitute(mapping: [String:Expr]) -> Expr {
         return rewrite(with: { expr in
-            switch expr {
-            case let .Var(name) where mapping.keys.contains(name):
+            if case let .Var(name) = expr, mapping.keys.contains(name) {
                 return mapping[name]!
-            default:
-                return expr
             }
+            
+            return expr
         })
     }
 }
@@ -420,5 +419,30 @@ enum Pattern: CustomStringConvertible {
             
             return "\(name)(\(patterns.commas()))"
         }
+    }
+    
+    func rewrite(with f: (Pattern) -> Pattern) -> Pattern {
+        func aux(_ pat: Pattern) -> Pattern {
+            let res: Pattern
+            
+            switch pat {
+            case .any:
+                res = .any
+            case let .literal(lit):
+                res = .literal(lit)
+            case let .variable(name):
+                res = .variable(name)
+            case let .tuple(patterns):
+                res = .tuple(patterns.map(aux))
+            case let .record(entries):
+                res = .record(entries.map({ (field, pat) in (field, pat.map(aux)) }))
+            case let .variant(enumName, variant, patterns):
+                res = .variant(enumName: enumName, variant: variant, patterns.map(aux))
+            }
+            
+            return f(res)
+        }
+        
+        return aux(self)
     }
 }

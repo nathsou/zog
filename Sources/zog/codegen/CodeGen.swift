@@ -123,14 +123,6 @@ extension CoreExpr {
             return ret ?? .undefined
         case let .If(cond, then, else_, ty):
             if case let .Expr(retThen) = then.last, case let .Expr(retElse) = else_.last {
-                if then.count == 1 && else_.count == 1 {
-                    return .ternary(
-                        cond: try cond.codegen(ctx),
-                        thenExpr: try retThen.codegen(ctx),
-                        elseExpr: try retElse.codegen(ctx)
-                    )
-                }
-                
                 let resultName = ctx.declareUnique("result")
                 let resultVar = CoreExpr.Var(resultName, ty: ty)
                 
@@ -178,7 +170,7 @@ extension CoreExpr {
                     ctx: ctx
                 ).codegen(ctx)
             } else {
-                let subjectVarName = ctx.declare("subject")
+                let subjectVarName = "subject"
                 return try CoreExpr.Block(
                     [.Let(mut: false, pat: .variable(subjectVarName), ty: expr.ty, val: expr)],
                     ret: dt.rewrite(
@@ -190,19 +182,16 @@ extension CoreExpr {
                     ty: ty
                 ).codegen(ctx)
             }
-        case let .Switch(expr, cases, defaultCase, _):
-            if let defaultCase, cases.count == 1 {
-                let (test, action) = cases[0]
-                return .ternary(
-                    cond: .binaryOperation(
-                        try expr.codegen(ctx),
-                        .equ,
-                        try test.codegen(ctx)
-                    ),
-                    thenExpr: try action.codegen(ctx),
-                    elseExpr: try defaultCase.codegen(ctx)
-                )
-            } else {
+        case let .Switch(expr, cases, defaultCase, ty):
+           if let defaultCase, cases.count == 1 {
+               let (test, action) = cases[0]
+                return try CoreExpr.If(
+                    cond: .BinaryOp(expr, .equ, test, ty: .bool),
+                    then: [.Expr(action)],
+                    else_: [.Expr(defaultCase)],
+                    ty: ty
+                ).codegen(ctx)
+           } else {
                 let result = JSExpr.variable(ctx.declare("result"))
                 ctx.statements.append(.varDecl(export: false, const: false, result, .undefined))
                 
@@ -222,7 +211,7 @@ extension CoreExpr {
                 ))
                 
                 return result
-            }
+           }
         case let .Variant(enumName, variantName, val, _):
             let enum_ = ctx.env.enums[enumName.ref!]!
             let tag = JSExpr.number(Float64(enum_.variants.mapping[variantName]!.id))
@@ -233,7 +222,7 @@ extension CoreExpr {
                     ("value", try val.codegen(ctx))
                 ])
             } else {
-                return .object([("variant", tag)])
+                return tag
             }
         case let .BuiltInCall(name, args, _):
             switch name {
@@ -322,6 +311,8 @@ extension CoreExpr {
                 }
                 
                 return try typeOf(args[0].ty).codegen(ctx)
+            case "jsTypeOf":
+                return .typeof(try args[0].codegen(ctx))
             default:
                 fatalError("invalid built in function: impossible -> checked in infer")
             }
@@ -463,8 +454,8 @@ extension CorePattern {
 }
 
 extension DecisionTree {
-    func rewrite(subject: CoreExpr, returnTy: Ty, patterns: [CorePattern], ctx: CoreContext) -> CoreExpr {
-        func aux(_ dt: DecisionTree, subject: CoreExpr) -> CoreExpr {
+    func rewrite(subject: CoreExpr, returnTy: Ty, patterns: [CorePattern], ctx: CoreContext) throws -> CoreExpr {
+        func aux(_ dt: DecisionTree, subject: CoreExpr) throws -> CoreExpr {
             switch dt {
             case .fail:
                 return .Raw(js: "(() => { throw new Error('Pattern matching failed'); })()", ty: .unit)
@@ -483,49 +474,67 @@ extension DecisionTree {
                     ty: returnTy
                 )
             case let .switch_(path, cases, defaultCase):
-                var proj = subject.at(path: path, env: ctx.env)
-                var tests = [(CoreExpr, CoreExpr)]()
-                var isEnum = false
+                let proj = subject.at(path: path, env: ctx.env)
+                var literalTests = [(CoreExpr, CoreExpr)]()
+                var variantTests = [(CoreExpr, CoreExpr)]()
                 
                 for (ctor, _, dt) in cases {
                     switch ctor {
                     case let .literal(lit):
-                        tests.append((
+                        literalTests.append((
                             .Literal(lit, ty: lit.ty),
-                            aux(dt, subject: subject)
+                            try aux(dt, subject: subject)
                         ))
-                    case let .variant(_, _, id):
-                        isEnum = true
-                        tests.append((
-                            .Literal(.num(Float64(id)), ty: .str),
-                            aux(dt, subject: subject)
-                        ))
+                    case let .variant(_, _, id, hasAssociatedValue):
+                        let tag = CoreExpr.Literal(.num(Float64(id)), ty: .str)
+                        let test = (tag, try aux(dt, subject: subject))
+                        
+                        if hasAssociatedValue {
+                            variantTests.append(test)
+                        } else {
+                            literalTests.append(test)
+                        }
                     default:
                         continue
                     }
                 }
                 
-                if tests.isEmpty {
+                if literalTests.isEmpty, variantTests.isEmpty {
                     if !cases.isEmpty {
-                        return aux(cases[0].dt, subject: subject)
+                        return try aux(cases[0].dt, subject: subject)
                     } else if defaultCase != nil {
-                        return aux(defaultCase!, subject: subject)
+                        return try aux(defaultCase!, subject: subject)
                     }
                 }
                 
-                if isEnum {
-                    proj = .RecordSelect(proj, field: "variant", ty: proj.ty)
+                let variantProj = CoreExpr.RecordSelect(proj, field: "variant", ty: proj.ty)
+                let defaultCase_ = defaultCase != nil ? try aux(defaultCase!, subject: subject) : nil
+                
+                if !literalTests.isEmpty && !variantTests.isEmpty {
+                    return .If(
+                            cond: .BinaryOp(
+                                .BuiltInCall("jsTypeOf", [proj], ty: .str),
+                                .equ,
+                                .Literal(.str("number"),
+                                ty: .str
+                            ),
+                            ty: .bool
+                        ),
+                        then: [.Expr(.Switch(proj, cases: literalTests, defaultCase: nil, ty: returnTy))],
+                        else_: [.Expr(.Switch(variantProj, cases: variantTests, defaultCase: defaultCase_, ty: returnTy))],
+                        ty: returnTy
+                    )
                 }
                 
                 return .Switch(
-                    proj,
-                    cases: tests,
-                    defaultCase: defaultCase != nil ? aux(defaultCase!, subject: subject) : nil,
+                    literalTests.isEmpty ? variantProj : proj,
+                    cases: literalTests.isEmpty ? variantTests : literalTests,
+                    defaultCase: defaultCase_,
                     ty: returnTy
                 )
             }
         }
         
-        return aux(self, subject: subject)
+        return try aux(self, subject: subject)
     }
 }

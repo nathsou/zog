@@ -28,6 +28,7 @@ indirect enum JSExpr: CustomStringConvertible {
     case object([(String, JSExpr)])
     case objectAccess(JSExpr, field: String)
     case objectPattern([(String, JSExpr?)])
+    case typeof(JSExpr)
     case raw(String)
     
     func wrap() -> JSExpr {
@@ -92,6 +93,8 @@ indirect enum JSExpr: CustomStringConvertible {
             return "\(obj).\(field)"
         case let .objectPattern(entries):
             return "{ \(entries.map({ (k, p) in p != nil ? "\(k): \(p!)" : k }).joined(separator: ", ")) }"
+        case let .typeof(expr):
+            return "typeof \(expr)"
         case let .raw(js):
             return js
         }

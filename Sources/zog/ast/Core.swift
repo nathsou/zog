@@ -69,6 +69,28 @@ indirect enum CoreExpr {
         case .BuiltInCall(_, _, let ty): return ty
         }
     }
+
+//     func isAtomic() -> Bool {
+//         switch self {
+//             case .Literal(_, _): return true
+//             case let .UnaryOp(_, rhs, _): return rhs.isAtomic()
+//             case let .BinaryOp(lhs, _, rhs, _): return lhs.isAtomic() && rhs.isAtomic()
+//             case let .Parens(expr, _): return expr.isAtomic()
+//             case .Var(_, _): return true
+//             case .Fun(_, _, _, _, _): return true
+//             case let .Call(f, args, _): return f.isAtomic() && args.allSatisfy({ arg in arg.isAtomic() })
+//             case let .Block(stmts, ret, _): return stmts.isEmpty && (ret?.isAtomic() ?? true)
+//             case .If(_, _, _, _): return false
+//             case let .Assignment(lhs, _, rhs, _): return lhs.isAtomic() && rhs.isAtomic()
+//             case let .Tuple(vals, _): return vals.allSatisfy({ v in v.isAtomic() })
+//             case let .Array(elems, _): return elems.allSatisfy({ elem in elem.isAtomic() })
+//             case let .ArraySubscript(lhs, index, _): return lhs.isAtomic() && index.isAtomic()
+//             case let .Record(entries, _): return entries.allSatisfy({ (_, val) in val.isAtomic() })
+//             case let .RecordSelect(lhs, _, _): return lhs.isAtomic()
+//             case .Raw(_, _): return true
+//             case .Match(subject, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
+//         }
+//     }
 }
 
 extension Expr {

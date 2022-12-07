@@ -21,14 +21,6 @@ enum PathKey {
         
         return nil
     }
-    
-    func asVariant() -> String? {
-        if case let .variant(name) = self {
-            return name
-        }
-        
-        return nil
-    }
 }
 
 typealias Path = [PathKey]
@@ -72,7 +64,7 @@ enum Ctor: Hashable {
     case tuple
     case record
     case literal(Literal)
-    case variant(enumName: String, variant: String, id: Int)
+    case variant(enumName: String, variant: String, id: Int, hasAssociatedValue: Bool)
 }
 
 enum SimplifiedPattern {
@@ -149,11 +141,11 @@ extension CorePattern {
                     let enumName = enum_.name
                     if let pat {
                         return .const(
-                            .variant(enumName: enumName, variant: name, id: id),
+                            .variant(enumName: enumName, variant: name, id: id, hasAssociatedValue: true),
                             [try aux(pat, associatedTy!)]
                         )
                     } else {
-                        return .const(.variant(enumName: enumName, variant: name, id: id), [])
+                        return .const(.variant(enumName: enumName, variant: name, id: id, hasAssociatedValue: false), [])
                     }
                 } else {
                     fatalError("expected variant pattern for '\(name)' to be associated with an enum")
@@ -407,7 +399,7 @@ fileprivate struct ClauseMatrix {
             for (ctor, (arity: arity, rowIndex: rowIndex)) in hds {                
                 var o1 = (0..<arity).map({ i in occurrences[0] + [.index(i)] }) + occurrences[1...]
                 var args = [SimplifiedTy]()
-                if case let .variant(enumName, variantName, _) = ctor {
+                if case let .variant(enumName, variantName, _, _) = ctor {
                     let enums = env.enums[enumName]!
                     if case let (_, associatedTy?) = enums.variants.mapping[variantName]! {
                         args = [associatedTy.simplified()]
