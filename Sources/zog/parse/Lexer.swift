@@ -99,7 +99,7 @@ struct Lexer {
     }
 
     mutating func parseIdentOrKeyword() -> Token {
-        while let c = peek(), c.isAlphaNum {
+        while let c = peek(), c.isAlphaNum || c == "_" {
             _ = advance()
         }
 
@@ -110,6 +110,23 @@ struct Lexer {
         } else {
             return .identifier(lexeme)
         }
+    }
+
+    
+    mutating func parseBacktickIdentifier() -> Token {
+        var chars = [Character]()
+
+        while let c = peek() {
+            _ = advance()
+
+            if c == "`" {
+                break
+            }
+
+            chars.append(c)
+        }
+
+        return .identifier(String(chars))
     }
 
     mutating func parseString() -> Token {
@@ -225,6 +242,7 @@ struct Lexer {
             case "+": return .symbol(match("=") ? .pluseq : match("+") ? .plusplus : .plus)
             case "*": return .symbol(match("=") ? .stareq : .star)
             case "%": return .symbol(.percent)
+            case "`": return parseBacktickIdentifier()
             case "\"": return parseString()
             case "/":
                 if match("/") {

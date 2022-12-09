@@ -256,6 +256,9 @@ class Parser {
         case .identifier("rewrite"):
             advance()
             return try rewriteDecl(pub: false)
+        case .identifier("declare"):
+            advance()
+           return try declareDecl(pub: false) 
         default:
             return .Stmt(statement())
         }
@@ -334,6 +337,18 @@ class Parser {
         try consume(.symbol(.semicolon))
         
         return .Rewrite(pub: pub, ruleName: ruleName, args: args, rhs: rhs)
+    }
+    
+    // declare -> 'pub'? 'declare' identifier ':' type
+    func declareDecl(pub: Bool) throws -> Decl {
+        let name = try identifier()
+        try consume(.symbol(.colon))
+        generalizationLevel += 1
+        let ty = try type()
+        try consume(.symbol(.semicolon))
+        generalizationLevel -= 1
+
+        return .Declare(pub: pub, name: name, ty: ty)
     }
     
     // ------ statements ------

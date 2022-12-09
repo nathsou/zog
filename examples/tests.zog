@@ -6,6 +6,7 @@ let at: (a[], num) => a = raw { (elems, index) => elems.at(index) }
 let showNum: num => str = raw { n => String(n) }
 
 enum Type {
+   Unit
    Bool
    Num
    Str
@@ -32,6 +33,7 @@ let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }
 let isTuple = type => match type { Tuple(_) => true, _ => false }
 
 let show = type => match type {
+    Unit => "unit"
     Bool => "bool"
     Num => "num"
     Str => "str"
@@ -56,6 +58,10 @@ let show = type => match type {
         let entries = fields->map(({ field, type }) => field ++ ": " ++ show(type))
         "{ " ++ entries->join(", ") ++ " }"
     }
+}
+
+rewrite assert(test) -> if !(test) {
+    raise("assertion failed: " ++ @show(test))
 }
 
 let expectEqualAux = (a: a, b: a, showA: str, showB: str) => {
@@ -164,3 +170,15 @@ test("Variants", () => {
 })
 
 runTests()
+
+rewrite recordFields(record) -> match @type(record) {
+    Record(entries) => entries->map({ field } => field)
+    _ => []
+}
+
+rewrite tupleLength(tuple) -> match @type(tuple) {
+    Tuple(elems) => elems->len
+    _ => 1
+}
+
+assert({ a: 1, b: true }->recordFields->len == 3)

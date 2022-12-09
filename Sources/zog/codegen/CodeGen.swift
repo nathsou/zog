@@ -268,6 +268,8 @@ extension CoreExpr {
                                 val: .Literal(.str(tyVarName(id)), ty: .str)
                             )
                         }
+                    case .const("unit", []):
+                        return typeVariant("Unit")
                     case .const("bool", []):
                         return typeVariant("Bool")
                     case .const("str", []):
@@ -411,6 +413,9 @@ extension CoreDecl {
         case .TypeAlias(_, _, _, _):
             return []
         case .Enum(_, _, _, _):
+            return []
+        case let .Declare(_, name, _):
+            _ = ctx.declare(name)
             return []
         }
     }

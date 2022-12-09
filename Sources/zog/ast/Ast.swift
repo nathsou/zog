@@ -357,6 +357,7 @@ enum Decl: CustomStringConvertible {
     case TypeAlias(pub: Bool, name: String, args: [TyVarId], ty: Ty)
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     case Rewrite(pub: Bool, ruleName: String, args: [String], rhs: Expr)
+    case Declare(pub: Bool, name: String, ty: Ty)
     
     var description: String {
         switch self {
@@ -388,6 +389,8 @@ enum Decl: CustomStringConvertible {
             return "pub ".when(pub) + "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
         case let .Rewrite(pub, ruleName, args, rhs):
             return "pub ".when(pub) + "rewrite \(ruleName)(\(args.commas())) -> \(rhs)"
+        case let .Declare(pub, name, ty):
+            return "pub ".when(pub) + "declare \(name): \(ty)"
         }
     }
 }

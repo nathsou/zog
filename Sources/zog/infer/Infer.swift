@@ -440,6 +440,8 @@ extension CoreDecl {
             env.declareAlias(name: name, args: args, ty: ty, pub: pub)
         case let .Enum(pub, name, args, variants):
             env.declareEnum(name: name, args: args, variants: variants, pub: pub)
+        case let .Declare(pub, name, ty):
+            try env.declare(name, ty: ty.generalize(level: level), pub: pub)
         }
     }
 }
