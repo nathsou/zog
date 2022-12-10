@@ -143,7 +143,7 @@ enum JSStmt: CustomStringConvertible {
         case let .yield(expr): return "yield \(expr);"
         case .break_: return "break;"
         case let .switch_(subject, cases, defaultCase):
-            let showBody = { (stmts: [JSStmt]) in "{\n\(stmts.map({ indent($0) }).joined(separator: "\n"))\n}" }
+            let showBody = { (stmts: [JSStmt]) in "{\n\(stmts.map({ indent($0) }).newlines())\n}" }
             
             var tests = cases.map({ (val, stmts) in "case \(val): \(showBody(stmts))"})
             
@@ -151,7 +151,9 @@ enum JSStmt: CustomStringConvertible {
                 tests.append("default: \(showBody(defaultCase))")
             }
             
-            return "switch (\(subject)) {\n\(indent(tests.joined(separator: "\n")))\n}"
+            return "switch (\(subject)) {\n\(indent(tests.newlines()))\n}"
+        case .importDecl([], _):
+            return "";
         case let .importDecl(members, path):
             return "import { \(members.commas()) } from \"\(path)\";"
         }

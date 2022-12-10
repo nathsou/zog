@@ -14,9 +14,8 @@ final class inferenceTests: XCTestCase {
         var lexer = Lexer.init(source: source)
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
-        let rewritingCtx = RewritingContext()
         parser.pushTyParamScope()
-        let expr = try parser.expression().core(rewritingCtx, 0)
+        let expr = try parser.expression().core(ctx, 0)
         return try expr.infer(ctx, 0)
     }
     
@@ -25,9 +24,8 @@ final class inferenceTests: XCTestCase {
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
         let prog = try parser.program()
-        let rewritingCtx = RewritingContext()
-        let core = prog.map({ stmt in stmt.core(rewritingCtx, 0) })
         let ctx = TypeContext()
+        let core = try prog.map({ stmt in try stmt.core(ctx, 0) })
         
         for stmt in core {
             try stmt?.infer(ctx, 0)

@@ -1,8 +1,28 @@
+import "./math.zog" { min }
 
 pub let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
 pub let len: _[] => num = raw { array => array.length }
 pub let strLen: str => num = raw { str => str.length }
 pub let iter: a[] => Iterator<a> = raw { array => array[Symbol.iterator]() }
 pub let map: (a[], a => b) => b[] = raw { (array, f) => array.map(f) }
-pub let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }
 pub let at: (a[], num) => a = raw { (elems, index) => elems.at(index) }
+
+pub let range = iterator (start, end) => {
+    mut i = start
+
+    while i <= end {
+        yield i
+        i += 1
+    }   
+}
+
+pub let zip = (xs, ys) => {
+    let minLen = min(xs->len, ys->len)
+    mut pairs = []
+
+    for index in range(0, minLen - 1) {
+        pairs->push((xs->at(index), ys->at(index)))
+    } 
+
+    pairs
+}

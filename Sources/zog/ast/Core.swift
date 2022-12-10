@@ -7,22 +7,6 @@
 
 import Foundation
 
-class RewritingContext {
-    var rules = [String:(args: [String], rhs: Expr)]()
-    
-    func declareRule(name: String, args: [String], rhs: Expr) {
-        rules[name] = (args, rhs)
-    }
-    
-    func lookupRule(_ name: String) -> (args: [String], rhs: Expr)? {
-        return rules[name]
-    }
-    
-    func containsRule(_ name: String) -> Bool {
-        return rules.keys.contains(name)
-    }
-}
-
 indirect enum CoreExpr {
     case Literal(Literal, ty: Ty)
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
@@ -72,7 +56,7 @@ indirect enum CoreExpr {
 }
 
 extension Expr {
-    public func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreExpr {
+    public func core(_ ctx: TypeContext, _ lvl: UInt) -> CoreExpr {
         let ty = { Ty.fresh(level: lvl) }
         
         switch self {
@@ -95,8 +79,8 @@ extension Expr {
                 isIterator: isIterator,
                 ty: ty()
             )
-        case let .Call(f: .Var(ruleName), args) where ctx.containsRule(ruleName):
-            let (argNames, rhs) = ctx.lookupRule(ruleName)!
+        case let .Call(f: .Var(ruleName), args) where ctx.env.containsRule(ruleName):
+            let (argNames, rhs, _) = ctx.env.lookupRule(ruleName)!
             let subst = Dictionary(uniqueKeysWithValues: zip(argNames, args))
             return rhs.substitute(mapping: subst).core(ctx, lvl)
         case let .Call(f, args):
@@ -173,7 +157,7 @@ enum CoreStmt {
 }
 
 extension Stmt {
-    func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreStmt {
+    func core(_ ctx: TypeContext, _ lvl: UInt) -> CoreStmt {
         switch self {
         case let .Expr(expr):
             return .Expr(expr.core(ctx, lvl))
@@ -216,7 +200,7 @@ enum CoreDecl {
 }
 
 extension Decl {
-    func core(_ ctx: RewritingContext, _ lvl: UInt) -> CoreDecl? {
+    func core(_ ctx: TypeContext, _ lvl: UInt) throws -> CoreDecl? {
         switch self {
         case let .Let(pub, mut, pat, ty, val):
             return .Let(pub: pub, mut: mut, pat: pat.core(), ty: ty, val: val.core(ctx, lvl + 1))
@@ -226,12 +210,18 @@ extension Decl {
             return .TypeAlias(pub: pub, name: name, args: args, ty: ty)
         case let .Enum(pub, name, args, variants):
             return .Enum(pub: pub, name: name, args: args, variants: variants)
-        case let .Rewrite(_, name, args, rhs):
-            ctx.declareRule(name: name, args: args, rhs: rhs)
+        case let .Rewrite(pub, name, args, rhs):
+            ctx.env.declareRule(name: name, args: args, rhs: rhs, pub: pub)
             return nil
         case let .Declare(pub, name, ty):
             return .Declare(pub: pub, name: name, ty: ty)
         case let .Import(path, members):
+            if let mod = try ctx.resolver.resolve(path: path, level: lvl) {
+                for (ruleName, info) in mod.rewritingRules {
+                    ctx.env.declareRule(name: ruleName, args: info.args, rhs: info.rhs, pub: false)
+                }
+            }
+
             return .Import(path: path, members: members)
         }
     }

@@ -91,8 +91,8 @@ extension Array where Array.Element: CustomStringConvertible {
         return sepBy(", ")
     }
     
-    func newlines() -> String {
-        return sepBy("\n")
+    func newlines(count: Int = 1) -> String {
+        return sepBy(String(repeating: "\n", count: count))
     }
 }
 

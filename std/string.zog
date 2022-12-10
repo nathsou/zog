@@ -1,0 +1,2 @@
+
+pub let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }

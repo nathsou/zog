@@ -1,4 +1,5 @@
-import "./array.zog" { map, len, join, at }
+import "./array.zog" { map, len, at }
+import "./string.zog" { join }
 
 pub enum Type {
    Unit
@@ -42,3 +43,4 @@ pub let show = type => match type {
         "{ " ++ entries->join(", ") ++ " }"
     }
 }
+

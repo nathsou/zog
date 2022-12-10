@@ -34,7 +34,7 @@ class CoreContext {
         return variables.contains(name) ? 1 : 0
     }
     
-    func declareUnique(_ name: String) -> String {
+    func declareMeta(_ name: String) -> String {
         var uniqueName = "$" + name
         var index = 0
         
@@ -48,7 +48,7 @@ class CoreContext {
     
     func declare(_ name: String) -> String {
         if reservedIdentifiers.contains(name) {
-            return declareUnique(name)
+            return declareMeta(name)
         }
 
         variables.insert(name)
@@ -133,7 +133,7 @@ extension CoreExpr {
             return ret ?? .undefined
         case let .If(cond, then, else_, ty):
             if case let .Expr(retThen) = then.last, case let .Expr(retElse) = else_.last {
-                let resultName = ctx.declareUnique("result")
+                let resultName = ctx.declareMeta("result")
                 let resultVar = CoreExpr.Var(resultName, ty: ty)
                 
                 let thenStmts: [CoreStmt] = then.dropLast(1) + [
@@ -180,7 +180,7 @@ extension CoreExpr {
                     ctx: ctx
                 ).codegen(ctx)
             } else {
-                let subjectVarName = "subject"
+                let subjectVarName = "$subject" 
                 return try CoreExpr.Block(
                     [.Let(mut: false, pat: .variable(subjectVarName), ty: expr.ty, val: expr)],
                     ret: dt.rewrite(
@@ -193,16 +193,21 @@ extension CoreExpr {
                 ).codegen(ctx)
             }
         case let .Switch(expr, cases, defaultCase, ty):
-           if let defaultCase, cases.count == 1 {
+           if cases.count == 1 {
                let (test, action) = cases[0]
-                return try CoreExpr.If(
-                    cond: .BinaryOp(expr, .equ, test, ty: .bool),
-                    then: [.Expr(action)],
-                    else_: [.Expr(defaultCase)],
-                    ty: ty
-                ).codegen(ctx)
+
+                if let defaultCase {
+                    return try CoreExpr.If(
+                        cond: .BinaryOp(expr, .equ, test, ty: .bool),
+                        then: [.Expr(action)],
+                        else_: [.Expr(defaultCase)],
+                        ty: ty
+                    ).codegen(ctx)
+                }
+
+                return try action.codegen(ctx)
            } else {
-                let result = JSExpr.variable(ctx.declare("result"))
+                let result = JSExpr.variable(ctx.declareMeta("result"))
                 ctx.statements.append(.varDecl(export: false, const: false, result, .undefined))
                 
                 let codegenBody = { (body: CoreExpr) throws -> [JSStmt] in
@@ -370,19 +375,19 @@ extension CoreStmt {
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             
             if case .const("Array", _) = iterator.ty.deref(), case .variable(let name) = pat {
-                let iVar = ctx.declareUnique("i");
+                let iVar = ctx.declareMeta("i");
                 let iterVal: JSExpr = try iterator.codegen(ctx)
                 let iterVar: JSExpr
                 
                 if case .variable(let name) = iterVal {
                     iterVar = .variable(name)
                 } else {
-                    iterVar = .variable(ctx.declareUnique("elems"))
+                    iterVar = .variable(ctx.declareMeta("elems"))
                     ctx.statements.append(.varDecl(export: false, const: true, iterVar, iterVal))
                 }
                 
                 let len = JSExpr.objectAccess(iterVar, field: "length")
-                let lenVar = JSExpr.variable(ctx.declareUnique("len"))
+                let lenVar = JSExpr.variable(ctx.declareMeta("len"))
                 ctx.statements.append(.varDecl(export: false, const: true, lenVar, len))
                 bodyCtx.statements.insert(
                     .varDecl(export: false, const: false, .variable(name), .arraySubscript(iterVar, .variable(iVar))),
@@ -428,7 +433,7 @@ extension CoreDecl {
             _ = ctx.declare(name)
             return []
         case let .Import(path, members):
-            let variables = members?.filter({ name in name.first!.isLowercase }) ?? []
+            let variables = members?.filter({ name in ctx.env.vars.keys.contains(name) }) ?? []
             for member in variables {
                 _ = ctx.declare(member)
             }
@@ -495,7 +500,7 @@ extension DecisionTree {
                     vars.map({ (name, path) in
                         .Let(
                             mut: false,
-                            pat: .variable(ctx.declare(name)),
+                            pat: .variable(name),
                             ty: nil,
                             val: subject.at(path: path, env: ctx.env)
                         )

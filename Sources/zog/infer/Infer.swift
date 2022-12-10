@@ -462,7 +462,7 @@ extension CoreDecl {
         case let .Declare(pub, name, ty):
             try ctx.env.declare(name, ty: ty.generalize(level: level), pub: pub)
         case let .Import(path, members):
-            if let mod = try ctx.resolver.resolve(path: path, level: level) {
+            if let mod = ctx.resolver.modules[path] {
                 for member in members! {
                     if let info = mod.members[member] {
                         try ctx.env.declare(member, ty: info.ty, pub: false)
@@ -475,11 +475,15 @@ extension CoreDecl {
                         )
                     } else if let info = mod.typeAliases[member] {
                         ctx.env.declareAlias(name: member, args: info.args, ty: info.ty, pub: false)
+                    } else if ctx.env.containsRule(member) {
+                        // Ignore
                     } else {
                         throw TypeError.couldNotResolveMember(modulePath: path, member: member)
                     }
                 }
-            }
+            } else {
+                fatalError("Could not resolve module \(path)")
+            } 
         }
     }
 }

@@ -6,6 +6,7 @@ class Module {
     let typeAliases: [String:TypeEnv.AliasInfo]
     let enums: [String:TypeEnv.EnumInfo]
     let decls: [CoreDecl]
+    let rewritingRules: [String:TypeEnv.RewritingRuleInfo]
     let env: TypeEnv
     let ty: Ty
 
@@ -15,6 +16,7 @@ class Module {
        members = env.vars.filter({ $0.value.pub }) 
        typeAliases = env.aliases.filter({ $0.value.pub })
        enums = env.enums.filter({ $0.value.pub })
+       rewritingRules = env.rewritingRules.filter({ $0.value.pub })
        self.decls = decls
        let mappingFunc = { (id: UInt) in Ty.fresh(level: level) }
        ty = .record(.from(entries: members.map({ (name, info) in
@@ -25,12 +27,16 @@ class Module {
     func serialize() throws -> String {
         var contents = ""
         let ctx = CoreContext(linear: false, env: env)
-
+        
+        let context = CoreContext(linear: false, env: ctx.env)
+                    
         for decl in decls {
-            contents.append(
-                contentsOf: String(describing: try decl.codegen(ctx).map({ d in "\(d)\n" }).newlines())
-            )
+            context.statements.append(contentsOf: try decl.codegen(context))
         }
+
+        contents.append(
+            contentsOf: String(describing: context.statements.map({ "\($0)" }).filter({ $0 != "" }).newlines(count: 2))
+        )
 
         return contents
     }
@@ -74,10 +80,10 @@ class Resolver {
             return nil
         }
         
-        let rewritingCtx = RewritingContext()
-        let core = prog.map({ decl in decl.core(rewritingCtx, 0) }).compactMap({ x in x })
         let ctx = TypeContext()
+        let core = try prog.map({ decl in try decl.core(ctx, 0) }).compactMap({ x in x })
         try core.forEach({ decl in try decl.infer(ctx, 0) })
+         
         let moduleName = String(fileName.split(separator: ".").first!)
         let mod = Module(name: moduleName, env: ctx.env, decls: core, level: level)
         modules[path] = mod
