@@ -1,0 +1,44 @@
+import "./array.zog" { map, len, join, at }
+
+pub enum Type {
+   Unit
+   Bool
+   Num
+   Str
+   Variable(str)
+   Tuple(Type[])
+   Array(Type)
+   Alias({ name: str, args: Type[] })
+   Function({ args: Type[], returns: Type })
+   Record({ field: str, type: Type }[])
+}
+
+let isTuple = type => match type { Tuple(_) => true, _ => false }
+
+pub let show = type => match type {
+    Unit => "unit"
+    Bool => "bool"
+    Num => "num"
+    Str => "str"
+    Variable(name) => name
+    Tuple(args) => "(" ++ args->map(show)->join(", ") ++ ")"
+    Array(ty) => show(ty) ++ "[]"
+    Alias({ name, args }) => {
+        if args->len == 0 {
+            name
+        } else {
+            name ++ "(" ++ args->map(show)->join(", ") ++ ")"
+        }
+    }
+    Function({ args, returns }) => {
+        (if args->len == 1 and !args->at(0)->isTuple {
+            show(args->at(0))
+        } else {
+            "(" ++ args->map(show)->join(", ") ++ ")"
+        }) ++ " => " ++ show(returns)
+    }
+    Record(fields) => {
+        let entries = fields->map(({ field, type }) => field ++ ": " ++ show(type))
+        "{ " ++ entries->join(", ") ++ " }"
+    }
+}

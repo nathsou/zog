@@ -30,6 +30,7 @@ indirect enum JSExpr: CustomStringConvertible {
     case objectPattern([(String, JSExpr?)])
     case typeof(JSExpr)
     case raw(String)
+    case dynamicImport(String)
     
     func wrap() -> JSExpr {
         if case .object(_) = self {
@@ -95,6 +96,8 @@ indirect enum JSExpr: CustomStringConvertible {
             return "{ \(entries.map({ (k, p) in p != nil ? "\(k): \(p!)" : k }).joined(separator: ", ")) }"
         case let .typeof(expr):
             return "typeof \(expr)"
+        case let .dynamicImport(path):
+            return "import('\(path)')"
         case let .raw(js):
             return js
         }
@@ -112,6 +115,7 @@ enum JSStmt: CustomStringConvertible {
     case yield(JSExpr)
     case break_
     case switch_(subject: JSExpr, cases: [(JSExpr, [JSStmt])], defaultCase: [JSStmt]?)
+    case importDecl(members: [String], path: String)
     
     public var description: String {
         switch self {
@@ -148,6 +152,8 @@ enum JSStmt: CustomStringConvertible {
             }
             
             return "switch (\(subject)) {\n\(indent(tests.joined(separator: "\n")))\n}"
+        case let .importDecl(members, path):
+            return "import { \(members.commas()) } from \"\(path)\";"
         }
     }
 }

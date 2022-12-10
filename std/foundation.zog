@@ -1,0 +1,39 @@
+
+declare console: { log: _ => () }
+
+pub let print = console.log
+pub let raise: str => _ = raw { msg => { throw new Error(msg); } }
+
+pub rewrite assert(test) -> if !(test) {
+    raise("assertion failed: " ++ @show(test))
+}
+
+pub enum Option<a> { None, Some(a) }
+
+pub let isSome = opt => match opt { Some(_) => true, _ => false }
+pub let isNone = opt => match opt { None => true, _ => false }
+
+pub let map = (opt, f) => match opt {
+    Some(a) => Some(f(a))
+    None => None
+}
+
+pub let flatMap = (opt, f) => match opt {
+    Some(a) => f(a)
+    None => None
+}
+
+pub enum Either<a, b> { Left(a), Right(b) }
+
+pub let isLeft = either => match either { Left(_) => true, _ => false }
+pub let isRight = either => match either { Right(_) => true, _ => false }
+
+pub let mapEither = (either, f) => match either {
+    Left(l) => Left(f(l))
+    Right(r) => Right(f(r))
+}
+
+pub enum Result<t, e> { Ok(t), Error(e) }
+
+pub let isOk = result => match result { Ok(_) => true, _ => false }
+pub let isError = result => match result { Error(_) => true, _ => false }

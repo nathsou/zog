@@ -1,5 +1,4 @@
-let print: _ => () = raw { console.log }
-let raise: str => _ = raw { msg => { throw new Error(msg); } }
+import "../std/foundation.zog" { print, raise }
 
 type Map = { get: str => a, set: (str, a) => (), has: str => bool }
 let createMap: () => Map = raw { () => new Map() }

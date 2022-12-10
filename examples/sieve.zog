@@ -1,7 +1,6 @@
 
-let print: _ => () = raw { console.log }
-let iter: a[] => Iterator<a> = raw { array => array[Symbol.iterator]() }
-let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
+import "../std/foundation.zog" { print }
+import "../std/array.zog" { push, iter }
 
 let isPrime = (sieve, n) => {
     for p in sieve->iter {
@@ -36,7 +35,7 @@ let primes = iterator max => {
 let count = it => {
     mut len = 0
     
-    for elem in it {
+    for _ in it {
         len += 1
     }
     

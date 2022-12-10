@@ -10,30 +10,30 @@ import XCTest
 @testable import zog
 
 final class inferenceTests: XCTestCase {
-    func infer(_ source: String, _ env: TypeEnv = TypeEnv()) throws -> Ty {
+    func infer(_ source: String, _ ctx: TypeContext = TypeContext()) throws -> Ty {
         var lexer = Lexer.init(source: source)
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
-        let ctx = RewritingContext()
+        let rewritingCtx = RewritingContext()
         parser.pushTyParamScope()
-        let expr = try parser.expression().core(ctx, 0)
-        return try expr.infer(env, 0)
+        let expr = try parser.expression().core(rewritingCtx, 0)
+        return try expr.infer(ctx, 0)
     }
     
-    func infer(statements source: [String]) throws -> TypeEnv {
+    func infer(statements source: [String]) throws -> TypeContext {
         var lexer = Lexer.init(source: source.joined(separator: "\n") + "\n")
         let tokens = lexer.lex()
         let parser = Parser.init(tokens: tokens)
         let prog = try parser.program()
-        let ctx = RewritingContext()
-        let core = prog.map({ stmt in stmt.core(ctx, 0) })
-        let env = TypeEnv()
+        let rewritingCtx = RewritingContext()
+        let core = prog.map({ stmt in stmt.core(rewritingCtx, 0) })
+        let ctx = TypeContext()
         
         for stmt in core {
-            try stmt?.infer(env, 0)
+            try stmt?.infer(ctx, 0)
         }
         
-        return env
+        return ctx
     }
     
     func testInferPrimitiveTy() throws {
@@ -84,30 +84,30 @@ final class inferenceTests: XCTestCase {
     }
     
     func testInferPolyTy() throws {
-        let env1 = try infer(statements: [
+        let ctx1 = try infer(statements: [
             "let id = x => x",
             "let a = id(3)",
             "let b = id(\"yo!\")"
         ])
         
-        XCTAssertEqual(env1.vars["id"]!.ty.canonical, "a => a")
-        XCTAssertEqual(env1.vars["a"]?.ty, .num)
-        XCTAssertEqual(env1.vars["b"]?.ty, .str)
+        XCTAssertEqual(ctx1.env.vars["id"]!.ty.canonical, "a => a")
+        XCTAssertEqual(ctx1.env.vars["a"]?.ty, .num)
+        XCTAssertEqual(ctx1.env.vars["b"]?.ty, .str)
         
-        let env2 = try infer(statements: [
+        let ctx2 = try infer(statements: [
             "let fst = ((a, _)) => a",
         ])
         
-        XCTAssertEqual(env2.vars["fst"]?.ty.canonical, "((a, b)) => a")
+        XCTAssertEqual(ctx2.env.vars["fst"]?.ty.canonical, "((a, b)) => a")
     }
     
     func testInferArrayTy() throws {
-        let env1 = try infer(statements: ["let a1 = []", "mut a2 = []"])
-        XCTAssertEqual(env1.vars["a1"]!.ty.canonical, "a[]")
-        XCTAssertEqual(env1.vars["a2"]!.ty.canonical, "A[]")
+        let ctx1 = try infer(statements: ["let a1 = []", "mut a2 = []"])
+        XCTAssertEqual(ctx1.env.vars["a1"]!.ty.canonical, "a[]")
+        XCTAssertEqual(ctx1.env.vars["a2"]!.ty.canonical, "A[]")
         
-        let env2 = try infer(statements: ["let array = [1, 2, 3]"])
-        XCTAssertEqual(env2.vars["array"]!.ty.canonical, "num[]")
+        let ctx2 = try infer(statements: ["let array = [1, 2, 3]"])
+        XCTAssertEqual(ctx2.env.vars["array"]!.ty.canonical, "num[]")
         
         XCTAssertThrowsError(try infer(statements: ["let array = [1, true, ()]"]))
     }
@@ -127,19 +127,19 @@ final class inferenceTests: XCTestCase {
     }
     
     func testInferVariantTy() throws {
-        let env1 = try infer(statements: [
+        let ctx1 = try infer(statements: [
             "enum BinaryOp { Plus, Minus }",
             "let a = Plus"
         ])
         
-        XCTAssertEqual(env1.vars["a"]!.ty, .const("BinaryOp", []))
+        XCTAssertEqual(ctx1.env.vars["a"]!.ty, .const("BinaryOp", []))
         
-        let env2 = try infer(statements: [
+        let ctx2 = try infer(statements: [
             "enum List { Nil, Cons (num, List) }",
             "let list = Cons (1, Cons (2, Cons (3, Nil)))"
         ])
         
-        XCTAssertEqual(env2.vars["list"]!.ty.canonical, "List")
+        XCTAssertEqual(ctx2.env.vars["list"]!.ty.canonical, "List")
         
         let env3 = try infer(statements: [
             "enum BinaryOp { Plus, Minus }",

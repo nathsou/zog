@@ -19,6 +19,7 @@ enum ParserError: Error, CustomStringConvertible, Equatable {
     case expectedDeclaration
     case invalidAssignmentTarget
     case expected(Token)
+    case expectedPathInImportDecl
 
     public var description: String {
         switch self {
@@ -44,6 +45,8 @@ enum ParserError: Error, CustomStringConvertible, Equatable {
             return "Expected a pattern"
         case .expectedDeclaration:
             return "Expected a declaration"
+        case .expectedPathInImportDecl:
+            return "Expected a path in import decl"
         }
     }
 }

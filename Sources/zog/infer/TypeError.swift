@@ -25,6 +25,7 @@ enum TypeError: Error, CustomStringConvertible {
     case wrongNumberOfArguments(name: String, expected: Int, got: Int)
     case extraneousVariantArgument(enumName: String, variant: String)
     case missingVariantArgument(enumName: String, variant: String)
+    case couldNotResolveMember(modulePath: String, member: String)
 
     public var description: String {
         switch self {
@@ -69,6 +70,8 @@ enum TypeError: Error, CustomStringConvertible {
             return "Extraneous argument in \(enumName).\(variant) variant constructor"
         case let .missingVariantArgument(enumName, variant):
             return "Missing argument in \(enumName).\(variant) variant constructor"
+        case let .couldNotResolveMember(modulePath, member):
+            return "Could not resolve member '\(member)' from module '\(modulePath)'"
         }
     }
 }

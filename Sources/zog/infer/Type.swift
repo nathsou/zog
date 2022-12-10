@@ -399,17 +399,17 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         return self
     }
     
-    func substitute(_ mapping: [TyVarId:Ty]) -> Ty {
+    func substitute(mappingFunc: (TyVarId) -> Ty?) -> Ty {
         func aux(_ ty: Ty) -> Ty {
             switch ty {
             case let .variable(v):
                 switch v.ref {
                 case let .unbound(id, level):
-                    return mapping[id] ?? .variable(Ref(.unbound(id: id, level: level)))
+                    return mappingFunc(id) ?? .variable(Ref(.unbound(id: id, level: level)))
                 case let .link(to):
                     return aux(to)
                 case let .generic(id):
-                    return mapping[id] ?? .variable(Ref(.generic(id)))
+                    return mappingFunc(id) ?? .variable(Ref(.generic(id)))
                 }
             case let .const(name, args):
                 return .const(name, args.map(aux))
@@ -421,6 +421,10 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         }
         
         return aux(self)
+    }
+
+    func substitute(_ mapping: [TyVarId:Ty]) -> Ty {
+        return substitute(mappingFunc: { id in mapping[id] })
     }
     
     static func == (s: Ty, t: Ty) -> Bool {
@@ -444,7 +448,7 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
                     v.ref = .unbound(id: otherId, level: level)
                 }
             case .generic(_):
-                assertionFailure()
+                fatalError("generic ty")
          }
         case let .const(_, args):
             for arg in args {

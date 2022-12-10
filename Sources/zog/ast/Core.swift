@@ -212,6 +212,7 @@ enum CoreDecl {
     case TypeAlias(pub: Bool, name: String, args: [TyVarId], ty: Ty)
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     case Declare(pub: Bool, name: String, ty: Ty)
+    case Import(path: String, members: [String]?)
 }
 
 extension Decl {
@@ -230,6 +231,8 @@ extension Decl {
             return nil
         case let .Declare(pub, name, ty):
             return .Declare(pub: pub, name: name, ty: ty)
+        case let .Import(path, members):
+            return .Import(path: path, members: members)
         }
     }
 }

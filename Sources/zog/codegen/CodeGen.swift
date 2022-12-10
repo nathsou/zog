@@ -7,12 +7,14 @@
 
 import Foundation
 
+let reservedIdentifiers = Set(["eval", "throw", "Infinity"])
+
 class CoreContext {
     let env: TypeEnv
     let parent: CoreContext?
     var statements = [JSStmt]()
     var variables = Set<String>()
-    let isLinear: Bool
+    let isLinear: Bool 
     
     init(parent: CoreContext? = nil, linear: Bool, env: TypeEnv) {
         self.parent = parent
@@ -45,6 +47,10 @@ class CoreContext {
     }
     
     func declare(_ name: String) -> String {
+        if reservedIdentifiers.contains(name) {
+            return declareUnique(name)
+        }
+
         variables.insert(name)
         
         let count = countVars(name: name)
@@ -52,6 +58,10 @@ class CoreContext {
     }
     
     func lookup(_ name: String) throws -> String {
+        if reservedIdentifiers.contains(name) {
+            return try lookup("$\(name)")
+        }
+
         let count = countVars(name: name)
         
         if count == 0 {
@@ -417,6 +427,21 @@ extension CoreDecl {
         case let .Declare(_, name, _):
             _ = ctx.declare(name)
             return []
+        case let .Import(path, members):
+            let variables = members?.filter({ name in name.first!.isLowercase }) ?? []
+            for member in variables {
+                _ = ctx.declare(member)
+            }
+
+            assert(path.suffix(4) == ".zog")
+            let zogPath = String(path.dropLast(4) + ".mjs") 
+            
+            return [
+                .importDecl(
+                    members: variables, 
+                    path: zogPath
+                )
+            ]
         }
     }
 }

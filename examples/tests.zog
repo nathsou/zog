@@ -1,68 +1,9 @@
-let print: _ => () = raw { console.log }
-let raise: str => _ = raw { msg => { throw msg; } }
-let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
-let len: _[] => num = raw { array => array.length }
-let at: (a[], num) => a = raw { (elems, index) => elems.at(index) }
+import "../std/foundation.zog" { print, raise }
+import "../std/type.zog" { Type, show }
+import "../std/array.zog" { push, len, map }
+
 let showNum: num => str = raw { n => String(n) }
 
-enum Type {
-   Unit
-   Bool
-   Num
-   Str
-   Variable(str)
-   Tuple(Type[])
-   Array(Type)
-   Alias({ name: str, args: Type[] })
-   Function({ args: Type[], returns: Type })
-   Record({ field: str, type: Type }[])
-}
-
-let map = (xs: _[], f) => {
-    mut ys = []
-    
-    for x in xs {
-        ys->push(f(x))
-    }
-    
-    ys
-}
-
-let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }
-
-let isTuple = type => match type { Tuple(_) => true, _ => false }
-
-let show = type => match type {
-    Unit => "unit"
-    Bool => "bool"
-    Num => "num"
-    Str => "str"
-    Variable(name) => name
-    Tuple(args) => "(" ++ args->map(show)->join(", ") ++ ")"
-    Array(ty) => show(ty) ++ "[]"
-    Alias({ name, args }) => {
-        if args->len == 0 {
-            name
-        } else {
-            name ++ "(" ++ args->map(show)->join(", ") ++ ")"
-        }
-    }
-    Function({ args, returns }) => {
-        (if args->len == 1 and !args->at(0)->isTuple {
-            show(args->at(0))
-        } else {
-            "(" ++ args->map(show)->join(", ") ++ ")"
-        }) ++ " => " ++ show(returns)
-    }
-    Record(fields) => {
-        let entries = fields->map(({ field, type }) => field ++ ": " ++ show(type))
-        "{ " ++ entries->join(", ") ++ " }"
-    }
-}
-
-rewrite assert(test) -> if !(test) {
-    raise("assertion failed: " ++ @show(test))
-}
 
 let expectEqualAux = (a: a, b: a, showA: str, showB: str) => {
     if a != b {
@@ -170,15 +111,3 @@ test("Variants", () => {
 })
 
 runTests()
-
-rewrite recordFields(record) -> match @type(record) {
-    Record(entries) => entries->map({ field } => field)
-    _ => []
-}
-
-rewrite tupleLength(tuple) -> match @type(tuple) {
-    Tuple(elems) => elems->len
-    _ => 1
-}
-
-assert({ a: 1, b: true }->recordFields->len == 3)

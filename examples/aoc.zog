@@ -1,8 +1,4 @@
 let print: _ => () = raw { console.log }
-let push: (a[], a) => () = raw { (array, elem) => array.push(elem) }
-let len: _[] => num = raw { array => array.length }
-let strLen: str => num = raw { str => str.length }
-let iter: a[] => Iterator<a> = raw { array => array[Symbol.iterator]() }
 let parseNum: str => num = raw { n => Number(n) }
 let infinity: num = raw { Infinity }
 let sorted: num[] => num[] = raw { xs => xs.sort((a, b) => a - b) }

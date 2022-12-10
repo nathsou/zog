@@ -259,6 +259,9 @@ class Parser {
         case .identifier("declare"):
             advance()
            return try declareDecl(pub: false) 
+        case .identifier("import"):
+            advance()
+            return try importDecl()
         default:
             return .Stmt(statement())
         }
@@ -349,6 +352,20 @@ class Parser {
         generalizationLevel -= 1
 
         return .Declare(pub: pub, name: name, ty: ty)
+    }
+    
+    func importDecl() throws -> Decl {
+        if case let .str(path) = peek() {
+            advance()
+            try consume(.symbol(.lcurlybracket))
+            let members = try commas(identifier)
+            try consume(.symbol(.rcurlybracket))
+            try consume(.symbol(.semicolon))
+            
+            return .Import(path: path, members: members)
+        } else {
+            throw ParserError.expectedPathInImportDecl
+        }
     }
     
     // ------ statements ------
@@ -975,7 +992,7 @@ class Parser {
         
         return .BuiltInCall(name, args)
     }
-    
+
     // ------ types ------
     
     func type() throws -> Ty {

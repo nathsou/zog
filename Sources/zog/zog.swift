@@ -1,41 +1,13 @@
+import Foundation
+
 @main
 public struct zog {
     public static func main() {
         if CommandLine.arguments.count > 1 {
             do {
                 let sourceFile = CommandLine.arguments[1]
-                let source = try String(contentsOfFile: sourceFile)
-                var lexer = Lexer.init(source: source)
-                let tokens = lexer.lex()
-                let parser = Parser.init(tokens: tokens)
-                let prog = try parser.program()
-                
-                for (error, start, end) in parser.errors {
-                    print("\(error) near \"\(String(lexer.chars[start...(end - 1)]))\"")
-                }
-                
-                if parser.errors.isEmpty {
-                    let rewritingCtx = RewritingContext()
-                    let core = prog.map({ decl in decl.core(rewritingCtx, 0) })
-                    let env = TypeEnv()
-                    
-                    func comment(_ text: CustomStringConvertible) -> String {
-                        return String(describing: env).split(separator: "\n").map({ "// \($0)" }).newlines()
-                    }
-                    
-                    try core.forEach({ decl in try decl?.infer(env, 0) })
-                    print(comment(env), "\n")
-                    
-                    let context = CoreContext(linear: false, env: env)
-                    
-                    for decl in core {
-                        context.statements.append(contentsOf: try decl?.codegen(context) ?? [])
-                    }
-                    
-                    for decl in context.statements {
-                        print(decl)
-                    }
-                }
+                let resolver = Resolver() 
+                _ = try resolver.resolve(path: sourceFile, level: 0)
             } catch let error as ParserError {
                 print("Parsing failed: \(error)")
             } catch let error as TypeError {
