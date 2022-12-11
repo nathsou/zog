@@ -6,3 +6,6 @@ import "../std/string.zog" { join }
 
 print(constants.PI)
 
+type Vec2 = { x: num, y: num }
+
+let add = (u, v) => Vec2 { x: u.x + v.x, y: u.y + v.y }

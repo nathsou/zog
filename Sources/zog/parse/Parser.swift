@@ -970,12 +970,26 @@ class Parser {
         }
         
         let variantName = try upperIdentifier()
-        
         let args: [Expr]
         
         if match(.symbol(.lparen)) {
             args = try commas(expression)
             try consume(.symbol(.rparen))
+        } else if match(.symbol(.lcurlybracket)) {
+            var entries = [(name: String, val: Expr)]()
+            while case let .identifier(name) = peek() {
+                advance()
+                try consume(.symbol(.colon))
+                let val = try expression()
+                entries.append((name, val))
+                
+                if !match(.symbol(.comma)) {
+                    break
+                }
+            }
+
+            try consume(.symbol(.rcurlybracket))
+            args = [.Record(entries)]
         } else {
             args = []
         }
@@ -1213,6 +1227,8 @@ class Parser {
         if match(.symbol(.lparen)) {
             patterns = try commas(pattern)
             try consume(.symbol(.rparen))
+        } else if match(.symbol(.lcurlybracket)) {
+            patterns = [try recordPattern()]
         } else {
             patterns = []
         }

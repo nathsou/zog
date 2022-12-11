@@ -12,37 +12,37 @@ enum Expr {
     Num(num)
     Bool(bool)
     Var(str)
-    Let({ name: str, val: Expr, rhs: Expr })
-    LetRec({ name: str, arg: str, body: Expr, rhs: Expr })
-    Lambda({ arg: str, body: Expr })
-    Bin({ lhs: Expr, op: BinOp, rhs: Expr })
-    App({ lhs: Expr, arg: Expr })
-    If({ cond: Expr, ifTrue: Expr, ifFalse: Expr })
+    Let { name: str, val: Expr, rhs: Expr }
+    LetRec { name: str, arg: str, body: Expr, rhs: Expr }
+    Lambda { arg: str, body: Expr }
+    Bin { lhs: Expr, op: BinOp, rhs: Expr }
+    App { lhs: Expr, arg: Expr }
+    If { cond: Expr, ifTrue: Expr, ifFalse: Expr }
 }
 
 enum Value {
     Num(num)
     Bool(bool)
-    Closure({ arg: str, body: Expr, env: Env })
-    RecClosure({ name: str, arg: str, body: Expr, env: Env })
+    Closure { arg: str, body: Expr, env: Env }
+    RecClosure { name: str, arg: str, body: Expr, env: Env }
 }
 
 let eval = (expr: Expr, env: Env): Value => match expr {
     Num(x) => Num(x)
     Bool(q) => Bool(q)
     Var(v) => if env.has(v) { env.get(v) } else { raise("undeclared variable") }
-    Let({ name, val, rhs }) => {
+    Let { name, val, rhs } => {
         let bodyEnv = env->clone
         bodyEnv.set(name, val->eval(env))
         rhs->eval(bodyEnv)
     }
-    LetRec({ name, arg, body, rhs }) => {
+    LetRec { name, arg, body, rhs } => {
         let bodyEnv = env->clone
-        bodyEnv.set(name, RecClosure({ name: name, arg: arg, body: body, env: env }))
+        bodyEnv.set(name, RecClosure { name: name, arg: arg, body: body, env: env })
         rhs->eval(bodyEnv)
     }
-    Lambda({ arg, body }) => Closure({ arg: arg, body: body, env: env->clone })
-    Bin({ lhs, op, rhs }) => match (lhs->eval(env), rhs->eval(env)) {
+    Lambda { arg, body } => Closure { arg: arg, body: body, env: env->clone }
+    Bin { lhs, op, rhs } => match (lhs->eval(env), rhs->eval(env)) {
         (Num(a), Num(b)) => match op {
             Add => Num(a + b)
             Sub => Num(a - b)
@@ -60,21 +60,21 @@ let eval = (expr: Expr, env: Env): Value => match expr {
         }
         _ => raise("invalid operands in binary expression")
     }
-    App({ lhs, arg }) => {
+    App { lhs, arg } => {
         match lhs->eval(env) {
-            Closure({ arg: argName, body, env: bodyEnv }) => {
+            Closure { arg: argName, body, env: bodyEnv } => {
                 bodyEnv.set(argName, arg->eval(env))
                 body->eval(bodyEnv)
             }
-            RecClosure({ name, arg: argName, body, env: bodyEnv }) => {
-                bodyEnv.set(name, Closure({ arg: argName, body: body, env: bodyEnv }))
+            RecClosure { name, arg: argName, body, env: bodyEnv } => {
+                bodyEnv.set(name, Closure { arg: argName, body: body, env: bodyEnv })
                 bodyEnv.set(argName, arg->eval(env))
                 body->eval(bodyEnv)
             }
             _ => raise("cannot call non-closure value")
         }
     }
-    If({ cond, ifTrue, ifFalse }) => {
+    If { cond, ifTrue, ifFalse } => {
         match cond->eval(env) {
             Bool(true) => ifTrue->eval(env)
             Bool(false) => ifFalse->eval(env)
@@ -85,22 +85,22 @@ let eval = (expr: Expr, env: Env): Value => match expr {
 
 let env = createMap()
 
-let fact = n => LetRec({
+let fact = n => LetRec {
     name: "f",
     arg: "n",
-    body: Bin({
+    body: Bin {
         lhs: Var("n"),
         op: Mul,
-        rhs: If({
-            cond: Bin({ lhs: Var("n"), op: Equ, rhs: Num(1) }),
+        rhs: If {
+            cond: Bin { lhs: Var("n"), op: Equ, rhs: Num(1) },
             ifTrue: Num(1),
-            ifFalse: App({
+            ifFalse: App {
                 lhs: Var("f"),
-                arg: Bin({ lhs: Var("n"), op: Sub, rhs: Num(1) }),
-            }),
-        }),
-    }),
-    rhs: App({ lhs: Var("f"), arg: Num(n) }),
-})
+                arg: Bin { lhs: Var("n"), op: Sub, rhs: Num(1) },
+            },
+        },
+    },
+    rhs: App { lhs: Var("f"), arg: Num(n) },
+}
 
 print(fact(17)->eval(env))

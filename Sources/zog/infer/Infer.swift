@@ -273,7 +273,7 @@ extension CoreExpr {
                     enum_ = try ctx.env.lookupEnumUnique(variants: [variantName])
                 }
             }
-            
+
             enumName.ref = enum_.name
             let (subst, enumTy) = enum_.instantiate(level: level)
             let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst)
@@ -306,7 +306,7 @@ extension CoreExpr {
             default:
                 throw TypeError.invalidBuiltInCall(name)
             }
-}
+        }
         
         let ty = self.ty
         try ctx.env.unify(tau, ty)
