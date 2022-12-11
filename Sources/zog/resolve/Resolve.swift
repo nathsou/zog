@@ -26,16 +26,14 @@ class Module {
 
     func serialize() throws -> String {
         var contents = ""
-        let ctx = CoreContext(linear: false, env: env)
-        
-        let context = CoreContext(linear: false, env: ctx.env)
+        let ctx = CoreContext(env: env)
                     
         for decl in decls {
-            context.statements.append(contentsOf: try decl.codegen(context))
+            ctx.statements.append(contentsOf: try decl.codegen(ctx))
         }
 
         contents.append(
-            contentsOf: String(describing: context.statements.map({ "\($0)" }).filter({ $0 != "" }).newlines(count: 2))
+            contentsOf: String(describing: ctx.statements.map({ "\($0)" }).filter({ $0 != "" }).newlines(count: 2))
         )
 
         return contents

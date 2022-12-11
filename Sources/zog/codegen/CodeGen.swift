@@ -13,48 +13,42 @@ class CoreContext {
     let env: TypeEnv
     let parent: CoreContext?
     var statements = [JSStmt]()
-    var variables = Set<String>()
-    let isLinear: Bool 
+    var rootVariables: Ref<[String:Int]>
+    var localVariables = [String:String]()
     
-    init(parent: CoreContext? = nil, linear: Bool, env: TypeEnv) {
+    init(parent: CoreContext? = nil, env: TypeEnv) {
         self.parent = parent
-        self.isLinear = linear
+        self.rootVariables = parent?.rootVariables ?? Ref([:])
         self.env = env
     }
     
-    func child(linear: Bool) -> CoreContext {
-        return .init(parent: self, linear: linear, env: env)
-    }
-    
-    private func countVars(name: String) -> Int {
-        if let parent {
-            return parent.countVars(name: name) + (variables.contains(name) ? 1 : 0)
-        }
-        
-        return variables.contains(name) ? 1 : 0
+    func child() -> CoreContext {
+        return .init(parent: self, env: env)
     }
     
     func declareMeta(_ name: String) -> String {
-        var uniqueName = "$" + name
-        var index = 0
-        
-        while variables.contains(uniqueName) {
-            index += 1
-            uniqueName = "\(name)\(index)"
-        }
-        
+        let uniqueName = "$" + name + (rootVariables.ref[name].map({ String($0)} ) ?? "")
         return declare(uniqueName)
     }
-    
+
     func declare(_ name: String) -> String {
         if reservedIdentifiers.contains(name) {
             return declareMeta(name)
         }
 
-        variables.insert(name)
-        
-        let count = countVars(name: name)
-        return formatVarName(name, count: count)
+        if localVariables.keys.contains(name) {
+            fatalError("Variable \(name) already declared")
+        }
+
+        if let count = rootVariables.ref[name] {
+            rootVariables.ref[name] = count + 1
+        } else {
+            rootVariables.ref[name] = 1
+        }
+
+        let linearName = formatVarName(name, count: rootVariables.ref[name]!)
+        localVariables[name] = linearName
+        return linearName
     }
     
     func lookup(_ name: String) throws -> String {
@@ -62,13 +56,13 @@ class CoreContext {
             return try lookup("$\(name)")
         }
 
-        let count = countVars(name: name)
-        
-        if count == 0 {
+        if let linearName = localVariables[name] {
+            return linearName
+        } else if let parent {
+            return try parent.lookup(name)
+        } else {
             throw TypeError.unknownVariable(name)
         }
-        
-        return formatVarName(name, count: count)
     }
     
     func formatVarName(_ name: String, count: Int) -> String {
@@ -101,8 +95,8 @@ extension CoreExpr {
         case let .Parens(expr, _): return .parens(try expr.codegen(ctx))
         case let .Var(name, _): return .variable(try ctx.lookup(name))
         case let .Fun(args, _, body, isIterator, _):
-            let funCtx = ctx.child(linear: false)
-            let newArgs = try args.map({ (arg, _) in try arg.codegen(ctx) })
+            let funCtx = ctx.child()
+            let newArgs = try args.map({ (arg, _) in try arg.codegen(funCtx) })
             let ret = try body.codegen(funCtx)
             
             if case .undefined = ret {
@@ -120,7 +114,7 @@ extension CoreExpr {
         case let .Call(f, args, _):
             return .call(lhs: try f.codegen(ctx), args: try args.map({ try $0.codegen(ctx) }))
         case let .Block(stmts, ret, _):
-            let blockCtx = ctx.child(linear: true)
+            let blockCtx = ctx.child()
             
             for stmt in stmts {
                 blockCtx.statements.append(try stmt.codegen(blockCtx))
@@ -133,7 +127,7 @@ extension CoreExpr {
             return ret ?? .undefined
         case let .If(cond, then, else_, ty):
             if case let .Expr(retThen) = then.last, case let .Expr(retElse) = else_.last {
-                let resultName = ctx.declareMeta("result")
+                let resultName = "$result"
                 let resultVar = CoreExpr.Var(resultName, ty: ty)
                 
                 let thenStmts: [CoreStmt] = then.dropLast(1) + [
@@ -207,14 +201,19 @@ extension CoreExpr {
 
                 return try action.codegen(ctx)
            } else {
-                let result = JSExpr.variable(ctx.declareMeta("result"))
-                ctx.statements.append(.varDecl(export: false, const: false, result, .undefined))
+                let resultName = ctx.declare("$result")
+                ctx.statements.append(.varDecl(
+                    export: false,
+                    const: false,
+                    .variable(resultName),
+                    .undefined
+                ))
                 
                 let codegenBody = { (body: CoreExpr) throws -> [JSStmt] in
-                    let bodyCtx = ctx.child(linear: false)
+                    let bodyCtx = ctx.child()
                     let rhs = try body.codegen(bodyCtx)
                     return bodyCtx.statements + [
-                        .expr(.assignment(result, .eq, rhs)),
+                        .expr(.assignment(.variable(resultName), .eq, rhs)),
                         .break_
                     ]
                 }
@@ -222,10 +221,10 @@ extension CoreExpr {
                 ctx.statements.append(.switch_(
                     subject: try expr.codegen(ctx),
                     cases: try cases.map({ (val, body) in (try val.codegen(ctx), try codegenBody(body))}),
-                    defaultCase: defaultCase != nil ? try codegenBody(defaultCase!) : nil
+                    defaultCase: try defaultCase.map({ try codegenBody($0) })
                 ))
                 
-                return result
+                return .variable(resultName)
            }
         case let .Variant(enumName, variantName, val, _):
             let enum_ = ctx.env.enums[enumName.ref!]!
@@ -240,99 +239,7 @@ extension CoreExpr {
                 return tag
             }
         case let .BuiltInCall(name, args, _):
-            switch name {
-            case "type":
-                let ZogType = Ty.const("Type", [])
-                
-                func typeVariant(_ name: String, val: CoreExpr? = nil) -> CoreExpr {
-                    return .Variant(
-                        enumName: Ref("Type"),
-                        variantName: name,
-                        val: val,
-                        ty: ZogType
-                    )
-                }
-                
-                var tyVarIdMapping = [TyVarId:String]()
-                
-                func tyVarName(_ id: TyVarId) -> String {
-                    if let name = tyVarIdMapping[id] {
-                        return name
-                    }
-                    
-                    let count = tyVarIdMapping.count
-                    let name = TyVar.showTyVarId(UInt(count))
-                    tyVarIdMapping[id] = name
-                    return name
-                }
-                
-                func typeOf(_ ty: Ty) -> CoreExpr {
-                    switch ty {
-                    case let .variable(v):
-                        switch v.ref {
-                        case let .generic(id):
-                            return typeVariant(
-                                "Variable",
-                                val: .Literal(.str(tyVarName(id).lowercased()), ty: .str)
-                            )
-                        case let .link(to):
-                            return typeOf(to)
-                        case let .unbound(id, _):
-                            return typeVariant(
-                                "Variable",
-                                val: .Literal(.str(tyVarName(id)), ty: .str)
-                            )
-                        }
-                    case .const("unit", []):
-                        return typeVariant("Unit")
-                    case .const("bool", []):
-                        return typeVariant("Bool")
-                    case .const("str", []):
-                        return typeVariant("Str")
-                    case .const("num", []):
-                        return typeVariant("Num")
-                    case let .const("Tuple", args):
-                        return typeVariant("Tuple", val: .Array(args.map(typeOf), ty: .array(ZogType)))
-                    case let .const("Array", args) where args.count == 1:
-                        return typeVariant("Array", val: typeOf(args[0]))
-                    case let .const(name, args):
-                        return typeVariant(
-                            "Alias",
-                            val: .Record([
-                                ("name", .Literal(.str(name), ty: .str)),
-                                ("args", .Tuple(args.map(typeOf), ty: .tuple(args)))
-                            ], ty: .record(Row.from(entries: [("name", .str), ("args", .tuple(args))])))
-                        )
-                    case let .fun(args, ret):
-                        let argsTy = Ty.array(ZogType)
-                        return typeVariant(
-                            "Function",
-                            val: .Record([
-                                ("args", .Array(args.map(typeOf), ty: argsTy)),
-                                ("returns", typeOf(ret))
-                            ], ty: .record(Row.from(entries: [("args", argsTy), ("returns", ZogType)])))
-                        )
-                    case let .record(row):
-                        let entries = row.entries(sorted: true)
-                        let entryType = Ty.record(Row.from(entries: [("field", .str), ("type", ZogType)]))
-                        return typeVariant(
-                            "Record",
-                            val: .Array(entries.map({ (field, ty) in
-                                    .Record([
-                                        ("field", .Literal(.str(field), ty: .str)),
-                                        ("type", typeOf(ty))
-                                    ], ty: .array(entryType))
-                            }), ty: ZogType)
-                        )
-                    }
-                }
-                
-                return try typeOf(args[0].ty).codegen(ctx)
-            case "jsTypeOf":
-                return .typeof(try args[0].codegen(ctx))
-            default:
-                fatalError("invalid built in function: impossible -> checked in infer")
-            }
+            return try BuiltIn.codegen(name: name, args: args, ctx: ctx)
         }
     }
 }
@@ -349,13 +256,13 @@ extension CoreStmt {
         case let .Let(mut, pat, ty: _, val):
             return .varDecl(export: false, const: !mut, try pat.codegen(ctx), try val.codegen(ctx))
         case let .If(cond, then, else_):
-            let thenCtx = ctx.child(linear: false)
+            let thenCtx = ctx.child()
             try then.forEach({ stmt in thenCtx.statements.append(try stmt.codegen(thenCtx)) })
             
             var elseStmts: [JSStmt]? = nil
             
             if let else_ {
-                let elseCtx = ctx.child(linear: false)
+                let elseCtx = ctx.child()
                 try else_.forEach({ stmt in elseCtx.statements.append(try stmt.codegen(elseCtx)) })
                 elseStmts = elseCtx.statements
             }
@@ -366,11 +273,11 @@ extension CoreStmt {
                 else_: elseStmts
             )
         case let .While(cond, body):
-            let bodyCtx = ctx.child(linear: false)
+            let bodyCtx = ctx.child()
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             return .whileLoop(cond: try cond.codegen(ctx), body: bodyCtx.statements)
         case let .For(pat, iterator, body):
-            let bodyCtx = ctx.child(linear: false)
+            let bodyCtx = ctx.child()
             let corePat = try pat.codegen(ctx)
             try body.forEach({ stmt in bodyCtx.statements.append(try stmt.codegen(bodyCtx)) })
             
@@ -485,91 +392,5 @@ extension CorePattern {
             
             return .objectPattern(objectEntries)
         }
-    }
-}
-
-extension DecisionTree {
-    func rewrite(subject: CoreExpr, returnTy: Ty, patterns: [CorePattern], ctx: CoreContext) throws -> CoreExpr {
-        func aux(_ dt: DecisionTree, subject: CoreExpr) throws -> CoreExpr {
-            switch dt {
-            case .fail:
-                return .Raw(js: "(() => { throw new Error('Pattern matching failed'); })()", ty: .unit)
-            case let .leaf(rowIndex, action):
-                let vars = patterns[rowIndex].vars()
-                return .Block(
-                    vars.map({ (name, path) in
-                        .Let(
-                            mut: false,
-                            pat: .variable(name),
-                            ty: nil,
-                            val: subject.at(path: path, env: ctx.env)
-                        )
-                    }),
-                    ret: action,
-                    ty: returnTy
-                )
-            case let .switch_(path, cases, defaultCase):
-                let proj = subject.at(path: path, env: ctx.env)
-                var literalTests = [(CoreExpr, CoreExpr)]()
-                var variantTests = [(CoreExpr, CoreExpr)]()
-                
-                for (ctor, _, dt) in cases {
-                    switch ctor {
-                    case let .literal(lit):
-                        literalTests.append((
-                            .Literal(lit, ty: lit.ty),
-                            try aux(dt, subject: subject)
-                        ))
-                    case let .variant(_, _, id, hasAssociatedValue):
-                        let tag = CoreExpr.Literal(.num(Float64(id)), ty: .str)
-                        let test = (tag, try aux(dt, subject: subject))
-                        
-                        if hasAssociatedValue {
-                            variantTests.append(test)
-                        } else {
-                            literalTests.append(test)
-                        }
-                    default:
-                        continue
-                    }
-                }
-                
-                if literalTests.isEmpty, variantTests.isEmpty {
-                    if !cases.isEmpty {
-                        return try aux(cases[0].dt, subject: subject)
-                    } else if defaultCase != nil {
-                        return try aux(defaultCase!, subject: subject)
-                    }
-                }
-                
-                let variantProj = CoreExpr.RecordSelect(proj, field: "variant", ty: proj.ty)
-                let defaultCase_ = defaultCase != nil ? try aux(defaultCase!, subject: subject) : nil
-                
-                if !literalTests.isEmpty && !variantTests.isEmpty {
-                    return .If(
-                            cond: .BinaryOp(
-                                .BuiltInCall("jsTypeOf", [proj], ty: .str),
-                                .equ,
-                                .Literal(.str("number"),
-                                ty: .str
-                            ),
-                            ty: .bool
-                        ),
-                        then: [.Expr(.Switch(proj, cases: literalTests, defaultCase: nil, ty: returnTy))],
-                        else_: [.Expr(.Switch(variantProj, cases: variantTests, defaultCase: defaultCase_, ty: returnTy))],
-                        ty: returnTy
-                    )
-                }
-                
-                return .Switch(
-                    literalTests.isEmpty ? variantProj : proj,
-                    cases: literalTests.isEmpty ? variantTests : literalTests,
-                    defaultCase: defaultCase_,
-                    ty: returnTy
-                )
-            }
-        }
-        
-        return try aux(self, subject: subject)
     }
 }

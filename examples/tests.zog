@@ -1,9 +1,8 @@
-import "../std/foundation.zog" { print, raise }
+import "../std/foundation.zog" { print, raise, assert }
 import "../std/type.zog" { Type, show }
 import "../std/array.zog" { push, len, map }
 
 let showNum: num => str = raw { n => String(n) }
-
 
 let expectEqualAux = (a: a, b: a, showA: str, showB: str) => {
     if a != b {
@@ -109,5 +108,11 @@ test("Variants", () => {
     expectType(BinaryOp.Minus, "BinaryOp")
     expectType(UnaryOp.Minus, "UnaryOp")
 })
+
+test("Scopes", () => {
+    assert({ let a = 3; a } == 3)
+    assert({ let a = 3; let b = 7; a * b } == 21)
+    assert({ let a = { let a = { let a = { 2 } * 3; a } * 4; a } * 5; a } * 6 == 720)
+});
 
 runTests()

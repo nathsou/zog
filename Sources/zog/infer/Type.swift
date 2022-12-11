@@ -214,15 +214,11 @@ enum TyVar: Equatable, CustomStringConvertible {
     }
 }
 
-class Ref<T: Equatable>: Equatable {
+class Ref<T> {
     var ref: T
 
     init(_ ref: T) {
         self.ref = ref
-    }
-
-    public static func == (lhs: Ref<T>, rhs: Ref<T>) -> Bool {
-        return lhs.ref == rhs.ref
     }
 }
 

@@ -434,3 +434,89 @@ fileprivate struct ClauseMatrix {
         return aux(matrix: &self, occurrences: &occurrences)
     }
 }
+
+extension DecisionTree {
+    func rewrite(subject: CoreExpr, returnTy: Ty, patterns: [CorePattern], ctx: CoreContext) throws -> CoreExpr {
+        func aux(_ dt: DecisionTree, subject: CoreExpr) throws -> CoreExpr {
+            switch dt {
+            case .fail:
+                return .Raw(js: "(() => { throw new Error('Pattern matching failed'); })()", ty: .unit)
+            case let .leaf(rowIndex, action):
+                let vars = patterns[rowIndex].vars()
+                return .Block(
+                    vars.map({ (name, path) in
+                        .Let(
+                            mut: false,
+                            pat: .variable(name),
+                            ty: nil,
+                            val: subject.at(path: path, env: ctx.env)
+                        )
+                    }),
+                    ret: action,
+                    ty: returnTy
+                )
+            case let .switch_(path, cases, defaultCase):
+                let proj = subject.at(path: path, env: ctx.env)
+                var literalTests = [(CoreExpr, CoreExpr)]()
+                var variantTests = [(CoreExpr, CoreExpr)]()
+                
+                for (ctor, _, dt) in cases {
+                    switch ctor {
+                    case let .literal(lit):
+                        literalTests.append((
+                            .Literal(lit, ty: lit.ty),
+                            try aux(dt, subject: subject)
+                        ))
+                    case let .variant(_, _, id, hasAssociatedValue):
+                        let tag = CoreExpr.Literal(.num(Float64(id)), ty: .str)
+                        let test = (tag, try aux(dt, subject: subject))
+                        
+                        if hasAssociatedValue {
+                            variantTests.append(test)
+                        } else {
+                            literalTests.append(test)
+                        }
+                    default:
+                        continue
+                    }
+                }
+                
+                if literalTests.isEmpty, variantTests.isEmpty {
+                    if !cases.isEmpty {
+                        return try aux(cases[0].dt, subject: subject)
+                    } else if defaultCase != nil {
+                        return try aux(defaultCase!, subject: subject)
+                    }
+                }
+                
+                let variantProj = CoreExpr.RecordSelect(proj, field: "variant", ty: proj.ty)
+                let defaultCase_ = defaultCase != nil ? try aux(defaultCase!, subject: subject) : nil
+                
+                if !literalTests.isEmpty && !variantTests.isEmpty {
+                    return .If(
+                            cond: .BinaryOp(
+                                .BuiltInCall("jsTypeOf", [proj], ty: .str),
+                                .equ,
+                                .Literal(.str("number"),
+                                ty: .str
+                            ),
+                            ty: .bool
+                        ),
+                        then: [.Expr(.Switch(proj, cases: literalTests, defaultCase: nil, ty: returnTy))],
+                        else_: [.Expr(.Switch(variantProj, cases: variantTests, defaultCase: defaultCase_, ty: returnTy))],
+                        ty: returnTy
+                    )
+                }
+                
+                return .Switch(
+                    literalTests.isEmpty ? variantProj : proj,
+                    cases: literalTests.isEmpty ? variantTests : literalTests,
+                    defaultCase: defaultCase_,
+                    ty: returnTy
+                )
+            }
+        }
+        
+        return try aux(self, subject: subject)
+    }
+}
