@@ -51,6 +51,7 @@ struct Lexer {
         case .symbol(.rparen): return true
         case .symbol(.rbracket): return true
         case .symbol(.rcurlybracket): return true
+        case .symbol(.gtr): return true
         case .keyword(.Return): return true
         case .keyword(.Break): return true
         case .keyword(.Yield): return true

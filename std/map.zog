@@ -1,0 +1,23 @@
+import "./foundation.zog" { Option }
+
+pub let initMap: () => Map<_, _> = raw { () => new Map() }
+
+pub let keys: Map<k, _> => Iterator<k> = raw { map => map.keys() }
+
+pub let values: Map<_, v> => Iterator<v> = raw { map => map.values() }
+
+pub let clone: Map<k, t> => Map<k, t> = raw { map => new Map(map) }
+
+pub let set: (Map<k, t>, k, t) => () = raw { (map, key, val) => map.set(key, val) }
+
+pub let has: (Map<k, _>, k) => bool = raw { (map, key) => map.has(key) }
+
+let getUnsafe: (Map<k, t>, k) => t = raw { (map, key) => map.get(key) }
+
+pub let get = (map: Map<k, t>, key: k): Option<t> => {
+    if map->has(key) {
+        Some(map->getUnsafe(key))
+    } else {
+        None
+    }
+}

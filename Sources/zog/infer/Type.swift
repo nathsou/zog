@@ -316,7 +316,11 @@ indirect enum Ty: Equatable, CustomStringConvertible {
     public static func array(_ elemTy: Ty) -> Ty {
         return .const("Array", [elemTy])
     }
-    
+
+    public static func map(_ keyTy: Ty, _ valueTy: Ty) -> Ty {
+        return .const("Map", [keyTy, valueTy])
+    }
+
     public static func iterator(_ ty: Ty) -> Ty {
         return .const("Iterator", [ty])
     }
@@ -480,7 +484,7 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
     try go(ty)
 }
 
-let primitiveTypes = Set(["num", "str", "bool", "unit", "Tuple", "Array", "Iterator"])
+let primitiveTypes = Set(["num", "str", "bool", "unit", "Tuple", "Array", "Map", "Iterator"])
 
 extension TypeEnv {
         // see https://github.com/tomprimozic/type-systems

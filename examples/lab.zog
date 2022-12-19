@@ -3,9 +3,11 @@ import "../std/math.zog" { constants }
 import "../std/type.zog" { Type }
 import "../std/array.zog" { map }
 import "../std/string.zog" { join }
+import "../std/map.zog" { init }
 
 print(constants.PI)
 
 type Vec2 = { x: num, y: num }
 
-let add = (u, v) => Vec2 { x: u.x + v.x, y: u.y + v.y }
+let add = (u, v) => { x: u.x + v.x, y: u.y + v.y }
+

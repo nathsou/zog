@@ -1,10 +1,5 @@
-import "../std/foundation.zog" { print, raise }
-
-type Map = { get: str => a, set: (str, a) => (), has: str => bool }
-let createMap: () => Map = raw { () => new Map() }
-let clone: Map => Map = raw { map => new Map(map) }
-
-type Env = Map
+import "../std/foundation.zog" { print, raise, Option }
+import "../std/map.zog" { initMap, clone, has, get, set }
 
 enum BinOp { Add, Sub, Mul, Div, Equ, Neq, Lss, Gtr, Leq, Geq }
 
@@ -27,18 +22,20 @@ enum Value {
     RecClosure { name: str, arg: str, body: Expr, env: Env }
 }
 
+type Env = Map<str, Value>
+
 let eval = (expr: Expr, env: Env): Value => match expr {
     Num(x) => Num(x)
     Bool(q) => Bool(q)
-    Var(v) => if env.has(v) { env.get(v) } else { raise("undeclared variable") }
+    Var(v) => match env->get(v) { Some(v) => v, None => raise("undeclared variable") }
     Let { name, val, rhs } => {
         let bodyEnv = env->clone
-        bodyEnv.set(name, val->eval(env))
+        bodyEnv->set(name, val->eval(env))
         rhs->eval(bodyEnv)
     }
     LetRec { name, arg, body, rhs } => {
         let bodyEnv = env->clone
-        bodyEnv.set(name, RecClosure { name: name, arg: arg, body: body, env: env })
+        bodyEnv->set(name, RecClosure { name: name, arg: arg, body: body, env: env })
         rhs->eval(bodyEnv)
     }
     Lambda { arg, body } => Closure { arg: arg, body: body, env: env->clone }
@@ -63,12 +60,12 @@ let eval = (expr: Expr, env: Env): Value => match expr {
     App { lhs, arg } => {
         match lhs->eval(env) {
             Closure { arg: argName, body, env: bodyEnv } => {
-                bodyEnv.set(argName, arg->eval(env))
+                bodyEnv->set(argName, arg->eval(env))
                 body->eval(bodyEnv)
             }
             RecClosure { name, arg: argName, body, env: bodyEnv } => {
-                bodyEnv.set(name, Closure { arg: argName, body: body, env: bodyEnv })
-                bodyEnv.set(argName, arg->eval(env))
+                bodyEnv->set(name, Closure { arg: argName, body: body, env: bodyEnv })
+                bodyEnv->set(argName, arg->eval(env))
                 body->eval(bodyEnv)
             }
             _ => raise("cannot call non-closure value")
@@ -83,7 +80,7 @@ let eval = (expr: Expr, env: Env): Value => match expr {
     }
 }
 
-let env = createMap()
+let env = initMap()
 
 let fact = n => LetRec {
     name: "f",
