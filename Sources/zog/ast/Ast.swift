@@ -117,13 +117,25 @@ func ann(_ annotation: Ty?) -> String {
     return ""
 }
 
+enum FunModifier: CustomStringConvertible {
+    case fun
+    case iterator
+
+    public var description: String {
+        switch self {
+        case .fun: return "fun"
+        case .iterator: return "iterator"
+        }
+    }
+}
+
 indirect enum Expr: CustomStringConvertible {
     case Literal(Literal)
     case UnaryOp(UnaryOperator, Expr)
     case BinaryOp(Expr, BinaryOperator, Expr)
     case Parens(Expr)
     case Var(String)
-    case Fun(args: [(Pattern, Ty?)], retTy: Ty?, body: Expr, isIterator: Bool)
+    case Fun(modifier: FunModifier, args: [(Pattern, Ty?)], retTy: Ty?, body: Expr)
     case Call(f: Expr, args: [Expr])
     case Block([Stmt], ret: Expr?)
     case If(cond: Expr, then: [Stmt], else_: [Stmt])
@@ -151,7 +163,7 @@ indirect enum Expr: CustomStringConvertible {
             return "(\(expr))"
         case let .Var(v):
             return v
-        case let .Fun(args, retTy, body, isIterator):
+        case let .Fun(modifier, args, retTy, body):
             let res: String
             if args.count == 1, case let (arg, ty) = args[0], ty == nil {
                 res = "\(arg)\(ann(retTy)) => \(body)"
@@ -159,11 +171,7 @@ indirect enum Expr: CustomStringConvertible {
                 res = "(\(args.map({ (arg, ty) in "\(arg)\(ann(ty))" }).commas()))\(ann(retTy)) => \(body)"
             }
             
-            if isIterator {
-                return "iterator \(res)"
-            } else {
-                return res
-            }
+            return "\(modifier == .fun ? "" : "\(modifier)") \(res)"
         case let .Call(f, args):
             return "\(f)(\(args.commas()))"
         case let .Block(stmts, ret):
@@ -226,8 +234,8 @@ indirect enum Expr: CustomStringConvertible {
                 res = .Parens(aux(expr))
             case let .Var(name):
                 res = .Var(name)
-            case let .Fun(args, retTy, body, isIterator):
-                res = .Fun(args: args, retTy: retTy, body: aux(body), isIterator: isIterator)
+            case let .Fun(modifier, args, retTy, body):
+                res = .Fun(modifier: modifier, args: args, retTy: retTy, body: aux(body))
             case let .Call(fun, args):
                 res = .Call(f: aux(fun), args: args.map(aux))
             case let .Block(stmts, ret):
@@ -356,6 +364,7 @@ enum Decl: CustomStringConvertible {
     case Stmt(Stmt)
     case TypeAlias(pub: Bool, name: String, args: [TyVarId], ty: Ty)
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
+    case Fun(pub: Bool, modifier: FunModifier, name: String, args: [(Pattern, Ty?)], retTy: Ty?, body: Expr)
     case Rewrite(pub: Bool, ruleName: String, args: [String], rhs: Expr)
     case Declare(pub: Bool, name: String, ty: Ty)
     case Import(path: String, members: [String]?)
@@ -388,6 +397,12 @@ enum Decl: CustomStringConvertible {
                 .commas()
             
             return "pub ".when(pub) + "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
+        case let .Fun(pub, modifier, name, args, retTy, body):
+            let argsFmt = args
+                .map({ (pat, ty) in "\(pat)\(ann(ty))" })
+                .commas()
+
+            return "pub ".when(pub) + "\(modifier) \(name)(\(argsFmt))\(ann(retTy)) {\n\(indent(body))\n}"
         case let .Rewrite(pub, ruleName, args, rhs):
             return "pub ".when(pub) + "rewrite \(ruleName)(\(args.commas())) -> \(rhs)"
         case let .Declare(pub, name, ty):

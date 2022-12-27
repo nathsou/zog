@@ -221,44 +221,38 @@ class Parser {
     
     // ------ declaration ------
     
-    func declaration() throws -> Decl {
+    func declaration(pub: Bool = false) throws -> Decl {
         pushTyParamScope()
         defer { popTyParamScope() }
         
         switch peek() {
+        case .identifier("pub"):
+            advance()
+            return try declaration(pub: true)
         case .keyword(.Let):
             advance()
-            return try letDecl(pub: false, mut: false)
+            return try letDecl(pub: pub, mut: false)
         case .keyword(.Mut):
             advance()
-            return try letDecl(pub: false, mut: true)
-        case .identifier("pub") where check(.keyword(.Let), lookahead: 1):
-            advance(2)
-            return try letDecl(pub: true, mut: false)
-        case .identifier("pub") where check(.keyword(.Mut), lookahead: 1):
-            advance(2)
-            return try letDecl(pub: true, mut: true)
-        case .identifier("pub") where check(.identifier("type"), lookahead: 1):
-            advance(2)
-            return try typeAliasDecl(pub: true)
+            return try letDecl(pub: pub, mut: true)
         case .identifier("type") where check(.symbol(.eq), .symbol(.lss), lookahead: 2):
             advance()
-            return try typeAliasDecl(pub: false)
-        case .identifier("pub") where check(.identifier("enum"), lookahead: 1):
-            advance(2)
-            return try enumDecl(pub: true)
+            return try typeAliasDecl(pub: pub)
         case .identifier("enum"):
             advance()
-            return try enumDecl(pub: false)
-        case .identifier("pub") where check(.identifier("rewrite"), lookahead: 1):
-            advance(2)
-            return try rewriteDecl(pub: true)
+            return try enumDecl(pub: pub)
+        case .identifier("fun"):
+            advance()
+            return try funDecl(pub: pub, modifier: .fun)
+        case .keyword(.Iterator):
+            advance()
+            return try funDecl(pub: pub, modifier: .iterator)
         case .identifier("rewrite"):
             advance()
-            return try rewriteDecl(pub: false)
+            return try rewriteDecl(pub: pub)
         case .identifier("declare"):
             advance()
-           return try declareDecl(pub: false) 
+           return try declareDecl(pub: pub) 
         case .identifier("import"):
             advance()
             return try importDecl()
@@ -329,6 +323,29 @@ class Parser {
         return .Enum(pub: pub, name: name, args: args, variants: variants)
     }
     
+    // funDecl -> 'pub'? ('fun' | 'iterator') identifier '(' commas(pattern) ')' (':' ty)? { stmt* expr? }
+    func funDecl(pub: Bool, modifier: FunModifier) throws -> Decl {
+        let name = try identifier()
+        try consume(.symbol(.lparen))
+        var args = [(Pattern, Ty?)]() 
+        if !check(.symbol(.rparen)) {
+            repeat {
+                let pat = try pattern()
+                let ty = try typeAnnotation()
+                args.append((pat, ty))
+            } while match(.symbol(.comma))
+        }
+        try consume(.symbol(.rparen))
+        generalizationLevel += 1
+        let retTy = try typeAnnotation()
+        try consume(.symbol(.lcurlybracket))
+        let body = try block()
+        generalizationLevel -= 1
+        try consume(.symbol(.semicolon))
+        
+        return .Fun(pub: pub, modifier: modifier, name: name, args: args, retTy: retTy, body: body)
+    }
+
     // rewrite -> 'pub'? 'rewrite' identifier '(' identifier* ')' '->' expr
     func rewriteDecl(pub: Bool) throws -> Decl {
         let ruleName = try identifier()
@@ -348,9 +365,9 @@ class Parser {
         try consume(.symbol(.colon))
         generalizationLevel += 1
         let ty = try type()
+
         try consume(.symbol(.semicolon))
         generalizationLevel -= 1
-
         return .Declare(pub: pub, name: name, ty: ty)
     }
     
@@ -616,6 +633,7 @@ class Parser {
         if let f: Expr = attempt({
             var args = [(Pattern, Ty?)]()
             let isIterator = match(.keyword(.Iterator))
+            let modifier: FunModifier = isIterator ? .iterator : .fun
             var retTy: Ty? = nil
 
             if match(.symbol(.lparen)) {
@@ -638,7 +656,7 @@ class Parser {
 
             let body = try expression()
 
-            return Expr.Fun(args: args, retTy: retTy, body: body, isIterator: isIterator)
+            return Expr.Fun(modifier: modifier, args: args, retTy: retTy, body: body)
         }) {
             return f
         }

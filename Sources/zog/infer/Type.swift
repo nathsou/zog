@@ -93,20 +93,25 @@ class TypeEnv: CustomStringConvertible {
         vars[name] = (ty, pub)
     }
     
-    func declareAlias(name: String, args: [TyVarId], ty: Ty, pub: Bool) {
-        aliases[name] = (args, ty, pub)
+    func declareAlias(name: String, args: [TyVarId], ty: Ty, pub: Bool, level: UInt) {
+        let subst = ty.substitute(
+            Dictionary(uniqueKeysWithValues: args.map({ id in (id, Ty.variable(Ref(TyVar.generic(id)))) }))
+        )
+
+        aliases[name] = (args, subst.generalize(level: level + 1), pub)
     }
     
-    func lookupAlias(name: String) throws -> AliasInfo {
+    func lookupAlias(name: String, args: [Ty]) throws -> Ty {
         if let alias = aliases[name] {
-            return alias
+            let subst = Dictionary(uniqueKeysWithValues: zip(alias.args, args))
+            return alias.ty.substitute(subst).instantiate(level: 0)
         }
         
         if let parent {
-            return try parent.lookupAlias(name: name)
+            return try parent.lookupAlias(name: name, args: args)
         }
         
-        throw TypeError.couldNotResolveType(.const(name, []))
+        throw TypeError.couldNotResolveType(.const(name, args))
     }
     
     func declareEnum(name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)], pub: Bool) {
@@ -497,10 +502,10 @@ extension TypeEnv {
                 switch (s, t) {
                 case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
                     eqs.append(contentsOf: zip(args1, args2))
-                case let (.const(f, _), other) where !primitiveTypes.contains(f) && !enums.keys.contains(f),
-                     let (other, .const(f, _)) where !primitiveTypes.contains(f) && !enums.keys.contains(f):
-                    let (_, alias, _) = try self.lookupAlias(name: f)
-                    eqs.append((alias, other))
+                case let (.const(f, args), other) where !primitiveTypes.contains(f) && !enums.keys.contains(f),
+                     let (other, .const(f, args)) where !primitiveTypes.contains(f) && !enums.keys.contains(f):
+                    let inst = try self.lookupAlias(name: f, args: args)
+                    eqs.append((inst, other))
                 case let (.fun(args1, ret1), .fun(args2, ret2)) where args1.count == args2.count:
                     eqs.append(contentsOf: zip(args1, args2))
                     eqs.append((ret1, ret2))

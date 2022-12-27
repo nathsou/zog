@@ -1,5 +1,19 @@
 import Foundation
 
+enum ResolverError: Error, CustomStringConvertible {
+    case fileNotFound(String)
+    case circularDependency([String])
+
+    var description: String {
+        switch self {
+        case .fileNotFound(let path):
+            return "File not found: \(path)"
+        case .circularDependency(let modules):
+            return "Circular dependency: \(modules.joined(separator: " -> "))"
+        }
+    }
+}
+
 class Module {
     let name: String
     let members: [String:TypeEnv.VarInfo] 
@@ -49,6 +63,7 @@ extension FileManager {
 class Resolver {
     var fileManager = FileManager()
     var modules = [String:Module]()
+    var visiting: [String] = []
 
     func resolve(path: String, level: UInt) throws -> Module? {
         var dir = URL(string: path)!
@@ -60,8 +75,21 @@ class Resolver {
             fileManager.changeCurrentDirectoryPath(previousDirectory)
         }
 
-        if let mod = modules[path] {
+        let absolutePath = fileManager.currentDirectoryPath + "/" + fileName
+        
+        if visiting.contains(absolutePath) {
+            throw ResolverError.circularDependency(visiting + [absolutePath])
+        }
+
+        visiting.append(absolutePath)
+        defer { visiting.removeLast() }
+
+        if let mod = modules[absolutePath] {
             return mod
+        }
+
+        if !fileManager.fileExists(atPath: fileName) {
+            throw ResolverError.fileNotFound(fileName)
         }
 
         let source = String(decoding: fileManager.contents(atPath: fileName)!, as: UTF8.self)
@@ -78,10 +106,10 @@ class Resolver {
             return nil
         }
         
-        let ctx = TypeContext()
+        let ctx = TypeContext(resolver: self)
         let core = try prog.map({ decl in try decl.core(ctx, 0) }).compactMap({ x in x })
         try core.forEach({ decl in try decl.infer(ctx, 0) })
-         
+
         let moduleName = String(fileName.split(separator: ".").first!)
         let mod = Module(name: moduleName, env: ctx.env, decls: core, level: level)
         modules[path] = mod

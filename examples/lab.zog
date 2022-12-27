@@ -3,7 +3,6 @@ import "../std/math.zog" { constants }
 import "../std/type.zog" { Type }
 import "../std/array.zog" { map }
 import "../std/string.zog" { join }
-import "../std/map.zog" { init }
 
 print(constants.PI)
 

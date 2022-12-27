@@ -13,7 +13,7 @@ indirect enum CoreExpr {
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
     case Parens(CoreExpr, ty: Ty)
     case Var(String, ty: Ty)
-    case Fun(args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, isIterator: Bool, ty: Ty)
+    case Fun(modifier: FunModifier, args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
     case If(cond: CoreExpr, then: [CoreStmt], else_: [CoreStmt], ty: Ty)
@@ -71,12 +71,12 @@ extension Expr {
             return .Parens(coreExpr, ty: coreExpr.ty)
         case let .Var(name):
             return .Var(name, ty: ty())
-        case let .Fun(args, retTy, body, isIterator):
+        case let .Fun(modifier, args, retTy, body):
             return .Fun(
+                modifier: modifier,
                 args: args.map({ (pat, ty) in (pat.core(), ty) }),
                 retTy: retTy,
                 body: body.core(ctx, lvl),
-                isIterator: isIterator,
                 ty: ty()
             )
         case let .Call(f: .Var(ruleName), args) where ctx.env.containsRule(ruleName):
@@ -208,6 +208,20 @@ extension Decl {
             return .Stmt(stmt.core(ctx, lvl))
         case let .TypeAlias(pub, name, args, ty):
             return .TypeAlias(pub: pub, name: name, args: args, ty: ty)
+        case let .Fun(pub, modifier, name, args, retTy, body):
+            let funTy = Ty.fun(args.map({ $0.1 ?? .fresh(level: lvl) }), retTy ?? .fresh(level: lvl))
+            return .Let(
+                pub: pub,
+                mut: false,
+                pat: .variable(name), ty: funTy,
+                val: .Fun(
+                    modifier: modifier,
+                    args: args.map({ (pat, ty) in (pat.core(), ty) }),
+                    retTy: retTy,
+                    body: body.core(ctx, lvl + 1),
+                    ty: funTy
+                )
+            )
         case let .Enum(pub, name, args, variants):
             return .Enum(pub: pub, name: name, args: args, variants: variants)
         case let .Rewrite(pub, name, args, rhs):

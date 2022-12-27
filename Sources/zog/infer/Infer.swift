@@ -19,9 +19,9 @@ class TypeContext {
     let env: TypeEnv
     let resolver: Resolver
 
-    init() {
+    init(resolver: Resolver = Resolver()) {
         env = TypeEnv()
-        resolver = Resolver()
+        self.resolver = resolver
     }
 
     init(env: TypeEnv, resolver: Resolver) {
@@ -53,7 +53,7 @@ extension CoreExpr {
             }
         case let .Parens(expr, _):
             tau = try expr.infer(ctx, level)
-        case let .Fun(args, retTyAnn, body, isIterator, _):
+        case let .Fun(modifier, args, retTyAnn, body, _):
             let bodyCtx = ctx.child()
             var argsInfo = [(pat: CorePattern, ty: Ty, vars: [String:Ty], ann: Ty?)]()
             
@@ -76,6 +76,7 @@ extension CoreExpr {
             }
             
             let innerRetTy = retTyAnn ?? .fresh(level: level)
+            let isIterator = modifier == .iterator
             let retTy = isIterator ? Ty.iterator(innerRetTy) : innerRetTy
             TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
             var actualRetTy = try body.infer(bodyCtx, level, expectedTy: retTyAnn)
@@ -273,7 +274,6 @@ extension CoreExpr {
                     enum_ = try ctx.env.lookupEnumUnique(variants: [variantName])
                 }
             }
-
             enumName.ref = enum_.name
             let (subst, enumTy) = enum_.instantiate(level: level)
             let associatedTy = enum_.mapping[variantName]!.ty?.substitute(subst)
@@ -456,7 +456,7 @@ extension CoreDecl {
         case let .Stmt(stmt):
             try stmt.infer(ctx, level)
         case let .TypeAlias(pub, name, args, ty):
-            ctx.env.declareAlias(name: name, args: args, ty: ty, pub: pub)
+            ctx.env.declareAlias(name: name, args: args, ty: ty, pub: pub, level: level)
         case let .Enum(pub, name, args, variants):
             ctx.env.declareEnum(name: name, args: args, variants: variants, pub: pub)
         case let .Declare(pub, name, ty):
@@ -474,7 +474,7 @@ extension CoreDecl {
                             pub: false
                         )
                     } else if let info = mod.typeAliases[member] {
-                        ctx.env.declareAlias(name: member, args: info.args, ty: info.ty, pub: false)
+                        ctx.env.declareAlias(name: member, args: info.args, ty: info.ty, pub: false, level: level)
                     } else if ctx.env.containsRule(member) {
                         // Ignore
                     } else {

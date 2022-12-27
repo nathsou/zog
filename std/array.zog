@@ -7,7 +7,7 @@ pub let iter: a[] => Iterator<a> = raw { array => array[Symbol.iterator]() }
 pub let map: (a[], a => b) => b[] = raw { (array, f) => array.map(f) }
 pub let at: (a[], num) => a = raw { (elems, index) => elems.at(index) }
 
-pub let range = iterator (start, end) => {
+pub iterator range(start, end) {
     mut i = start
 
     while i <= end {
@@ -16,9 +16,9 @@ pub let range = iterator (start, end) => {
     }   
 }
 
-pub let zip = (xs, ys) => {
+pub fun zip(xs, ys) {
     let minLen = min(xs->len, ys->len)
-    mut pairs = []
+    mut pairs = [] 
 
     for index in range(0, minLen - 1) {
         pairs->push((xs->at(index), ys->at(index)))

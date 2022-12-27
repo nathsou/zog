@@ -18,7 +18,7 @@ final class inferenceTests: XCTestCase {
         let expr = try parser.expression().core(ctx, 0)
         return try expr.infer(ctx, 0)
     }
-    
+ 
     func infer(statements source: [String]) throws -> TypeContext {
         var lexer = Lexer.init(source: source.joined(separator: "\n") + "\n")
         let tokens = lexer.lex()
