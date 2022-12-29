@@ -3,7 +3,7 @@ declare console: { log: _ => () }
 pub type Show<a> = { show: a => str }
 
 pub fun print2({ show }: Show<a>, value: a) {
-    console.log(show(value))
+    (console.log)(show(value))
 }
 
 pub let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }

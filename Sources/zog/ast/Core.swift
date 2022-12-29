@@ -27,6 +27,7 @@ indirect enum CoreExpr {
     case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
     case Variant(enumName: Ref<String?>, variantName: String, val: CoreExpr?, ty: Ty)
+    case MethodCall(subject: CoreExpr, method: String, args: [CoreExpr], ty: Ty)
     case BuiltInCall(String, [CoreExpr], ty: Ty)
     
     public var ty: Ty {
@@ -50,6 +51,7 @@ indirect enum CoreExpr {
         case .Match(_, _, let ty): return ty
         case .Switch(_, _, _, let ty): return ty
         case .Variant(_, _, _, let ty): return ty
+        case .MethodCall(_, _, _, let ty): return ty
         case .BuiltInCall(_, _, let ty): return ty
         }
     }
@@ -137,6 +139,13 @@ extension Expr {
                 val: val.map({ $0.core(ctx, lvl) }),
                 ty: ty()
             )
+        case let .MethodCall(subject, method, args):
+            return .MethodCall(
+                subject: subject.core(ctx, lvl),
+                method: method,
+                args: args.map({ $0.core(ctx, lvl) }),
+                ty: ty()
+            )
         case let .BuiltInCall("show", args) where args.count == 1:
             return .Literal(.str("\(args[0])"), ty: .str)
         case let .BuiltInCall(name, args):
@@ -197,6 +206,21 @@ enum CoreDecl {
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     case Declare(pub: Bool, name: String, ty: Ty)
     case Import(path: String, members: [String]?)
+    case Trait(pub: Bool, name: String, args: [TyVarId], methods: [(modifier: FunModifier, name: String, args: [(CorePattern, Ty)], ret: Ty)])
+    case TraitImpl(
+        params: [TyVarId],
+        trait: String,
+        args: [Ty],
+        ty: Ty,
+        methods: [(
+            pub: Bool,
+            modifier: FunModifier,
+            name: String,
+            args: [(CorePattern, Ty?)],
+            ret: Ty?,
+            body: CoreExpr
+        )]
+    )
 }
 
 extension Decl {
@@ -237,6 +261,27 @@ extension Decl {
             }
 
             return .Import(path: path, members: members)
+        case let .Trait(pub, name, args, members):
+            return .Trait(pub: pub, name: name, args: args, methods: members.map({ (modifier, name, args, retTy) in
+                (modifier: modifier, name: name, args: args.map({ (pat, ty) in (pat.core(), ty) }), ret: retTy)
+            }))
+        case let .TraitImpl(params, trait, args, ty, methods):
+            return .TraitImpl(
+                params: params,
+                trait: trait,
+                args: args,
+                ty: ty,
+                methods: methods.map({ (pub, modifier, name, args, retTy, body) in
+                    (
+                        pub: pub,
+                        modifier: modifier,
+                        name: name,
+                        args: args.map({ (pat, ty) in (pat.core(), ty) }),
+                        ret: retTy,
+                        body: body.core(ctx, lvl + 1)
+                    )
+                })
+            )
         }
     }
 }

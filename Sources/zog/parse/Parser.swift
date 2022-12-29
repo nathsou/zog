@@ -219,13 +219,16 @@ class Parser {
         return decls
     }
     
-    // ------ declaration ------
+    // ------ declarations ------
     
     func declaration(pub: Bool = false) throws -> Decl {
         pushTyParamScope()
         defer { popTyParamScope() }
         
         switch peek() {
+        case .identifier("impl"):
+            advance()
+            return try traitImplDecl()
         case .identifier("pub"):
             advance()
             return try declaration(pub: true)
@@ -256,6 +259,9 @@ class Parser {
         case .identifier("import"):
             advance()
             return try importDecl()
+        case .identifier("trait"):
+            advance()
+            return try traitDecl(pub: pub)
         default:
             return .Stmt(statement())
         }
@@ -274,7 +280,7 @@ class Parser {
         return .Let(pub: pub, mut: mut, pat: pat, ty: ty, val: val)
     }
     
-    // typeParams -> '<' commas(loweIdentifier) '>'
+    // typeParams -> '<' commas(lowerIdentifier) '>'
     func typeParams() throws -> [TyVarId] {
         var args = [TyVarId]()
         if match(.symbol(.lss)) {
@@ -385,6 +391,94 @@ class Parser {
         }
     }
     
+    // traitFunSig -> ('fun' | 'iterator') identifier '(' ('self' ',')? commas(pattern ':' ty) ')' ':' ty
+    func traitFunctionSignature(modifier: FunModifier) throws -> (
+        modifier: FunModifier,
+        name: String,
+        args: [(Pattern, Ty)],
+        ret: Ty
+    ) {
+        let name = try identifier()
+        try consume(.symbol(.lparen))
+        var args = [(Pattern, Ty)]()
+        if !check(.symbol(.rparen)) {
+            repeat {
+                let pat = try pattern()
+                if case .variable("self") = pat {
+                    args.append((pat, Ty.const("Self", [])))
+                } else {
+                    try consume(.symbol(.colon))
+                    let ty = try type()
+                    args.append((pat, ty))
+                }
+            } while match(.symbol(.comma))
+        }
+        try consume(.symbol(.rparen))
+        try consume(.symbol(.colon))
+        let ret = try type()
+        try consume(.symbol(.semicolon))
+        
+        return (modifier, name, args, ret)
+    }
+    
+    // traitDecl -> 'pub'? 'trait' upperIdentifier typeParams? '{' decl* '}'
+    func traitDecl(pub: Bool) throws -> Decl {
+        let name = try upperIdentifier()
+        let args = try typeParams()
+        var methods = [(modifier: FunModifier, name: String, args: [(Pattern, Ty)], ret: Ty)]() 
+
+        try consume(.symbol(.lcurlybracket))
+        
+        while !check(.symbol(.rcurlybracket)) {
+            switch peek() {
+            case .identifier("fun"):
+                advance()
+                methods.append(try traitFunctionSignature(modifier: .fun))
+            case .identifier("iterator"):
+                advance()
+                methods.append(try traitFunctionSignature(modifier: .iterator))
+            default:
+                throw ParserError.invalidFunctionSignatureInTrait
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        try consume(.symbol(.semicolon))
+        
+        return .Trait(pub: pub, name: name, args: args, methods: methods)
+    }
+
+    // traitImplDecl -> 'impl' typeParams? upperIdentifier typeParams? 'for' ty '{' decl* '}'
+    func traitImplDecl() throws -> Decl {
+        let params = try typeParams()
+        let name = try upperIdentifier()
+        var args = [Ty]()
+        if match(.symbol(.lss)) {
+            args = try commas(type)
+            try consume(.symbol(.gtr))
+        } 
+        try consume(.keyword(.For))
+        let ty = try type()
+        var methods = [(pub: Bool, modifier: FunModifier, name: String, args: [(Pattern, Ty?)], ret: Ty?, body: Expr)]() 
+
+        try consume(.symbol(.lcurlybracket))
+        
+        while !check(.symbol(.rcurlybracket)) {
+            let decl = try declaration()
+            switch decl {
+            case let .Fun(pub, modifier, name, args, retTy, body):
+                methods.append((pub, modifier, name, args, retTy, body))
+            default:
+                throw ParserError.illegalDeclinImpl(decl.kind)
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        try consume(.symbol(.semicolon))
+        
+        return .TraitImpl(params: params, trait: name, args: args, ty: ty, methods: methods)
+    }
+
     // ------ statements ------
 
     func statement() -> Stmt {
@@ -814,7 +908,13 @@ class Parser {
                 lhs = .Call(f: lhs, args: args)
             } else if match(.symbol(.dot)) {
                 let field = try identifier()
-                lhs = .RecordSelect(lhs, field: field)
+                if match(.symbol(.lparen)) {
+                    let args = try commas(expression)
+                    try consume(.symbol(.rparen))
+                    lhs = .MethodCall(subject: lhs, method: field, args: args)
+                } else {
+                    lhs = .RecordSelect(lhs, field: field)
+                }
             } else if match(.symbol(.thinArrow)) {
                 let f = try identifier()
                 

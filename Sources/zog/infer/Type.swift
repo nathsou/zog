@@ -53,16 +53,18 @@ class EnumVariants {
 
 class TypeEnv: CustomStringConvertible {
     typealias VarInfo = (ty: Ty, pub: Bool)
+    typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
     typealias AliasInfo = (args: [TyVarId], ty: Ty, pub: Bool)
     typealias EnumInfo = (args: [TyVarId], variants: EnumVariants, pub: Bool)
     typealias RewritingRuleInfo = (args: [String], rhs: Expr, pub: Bool)
+    typealias TraitInfo = (args: [TyVarId], methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool)
     
     let parent: TypeEnv?
     var vars = [String:VarInfo]()
     var aliases = [String:AliasInfo]()
     var enums = [String:EnumInfo]()
     var rewritingRules = [String:RewritingRuleInfo]()
-    typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
+    var traits = [String:TraitInfo]()
     static var functionInfoStack = [FunctionInfo]()
 
     init() {
@@ -150,6 +152,14 @@ class TypeEnv: CustomStringConvertible {
     
     func containsRule(_ name: String) -> Bool {
         return rewritingRules.keys.contains(name)
+    }
+
+    func declareTrait(name: String, args: [TyVarId], methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool) {
+        traits[name] = (args, methods, pub)
+    }
+
+    func lookupTrait(_ name: String) -> TraitInfo? {
+        return traits[name]
     }
 
     func child() -> TypeEnv {

@@ -287,6 +287,9 @@ extension CoreExpr {
             
             try ctx.env.unify(enumTy, ty)
             tau = ty
+        case let .MethodCall(subject, method, args, ty):
+            // TODO:
+            tau = ty
         case let .BuiltInCall(name, args, _):
             for arg in args {
                 _ = try arg.infer(ctx, level)
@@ -484,6 +487,25 @@ extension CoreDecl {
             } else {
                 fatalError("Could not resolve module \(path)")
             } 
+        case let .Trait(pub, name, args, methods):
+            ctx.env.declareTrait(
+                name: name,
+                args: args,
+                methods: Dictionary(uniqueKeysWithValues: methods.map({ (_, name, args, ret) in
+                    let isStatic: Bool 
+                    if case .variable("self") = args.first?.0 {
+                        isStatic = false
+                    } else {
+                        isStatic = true
+                    }
+
+                    return (name, (ty: .fun(args.map({ $0.1 }), ret), isStatic: isStatic))
+                })),
+                pub: pub
+            )
+        case let .TraitImpl(pub, params, trait, args, methods):
+            // TODO:
+            break
         }
     }
 }

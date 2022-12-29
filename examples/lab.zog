@@ -1,12 +1,13 @@
 import "../std/foundation.zog" { print }
-import "../std/math.zog" { constants }
-import "../std/type.zog" { Type }
-import "../std/array.zog" { map }
-import "../std/string.zog" { join }
 
-print(constants.PI)
+let showNum: num => str = raw { n => String(n) }
 
-type Vec2 = { x: num, y: num }
+trait Show {
+    fun show(self): str
+}
 
-let add = (u, v) => { x: u.x + v.x, y: u.y + v.y }
-
+impl Show for num {
+    fun show(self) {
+       showNum(self) 
+    }
+}

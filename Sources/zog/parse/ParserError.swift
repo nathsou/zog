@@ -20,6 +20,8 @@ enum ParserError: Error, CustomStringConvertible, Equatable {
     case invalidAssignmentTarget
     case expected(Token)
     case expectedPathInImportDecl
+    case invalidFunctionSignatureInTrait
+    case illegalDeclinImpl(Decl.Kind)
 
     public var description: String {
         switch self {
@@ -47,6 +49,10 @@ enum ParserError: Error, CustomStringConvertible, Equatable {
             return "Expected a declaration"
         case .expectedPathInImportDecl:
             return "Expected a path in import decl"
+        case .invalidFunctionSignatureInTrait:
+            return "Invalid function signature in trait"
+        case .illegalDeclinImpl(let kind):
+            return "Illegal declaration in impl block: \(kind)"
         }
     }
 }
