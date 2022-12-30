@@ -2,12 +2,12 @@ import "../std/foundation.zog" { print }
 
 let showNum: num => str = raw { n => String(n) }
 
-trait Show {
-    fun show(self): str
+trait Show<t> {
+    fun show(self: t): str
 }
 
-impl Show for num {
-    fun show(self) {
-       showNum(self) 
+impl trait Show<a> {
+    fun show(n) {
+        showNum(n) 
     }
 }

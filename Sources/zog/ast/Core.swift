@@ -206,12 +206,15 @@ enum CoreDecl {
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     case Declare(pub: Bool, name: String, ty: Ty)
     case Import(path: String, members: [String]?)
-    case Trait(pub: Bool, name: String, args: [TyVarId], methods: [(modifier: FunModifier, name: String, args: [(CorePattern, Ty)], ret: Ty)])
+    case Trait(
+        pub: Bool,
+        name: String,
+        args: [TyVarId],
+        methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]
+    )
     case TraitImpl(
-        params: [TyVarId],
         trait: String,
         args: [Ty],
-        ty: Ty,
         methods: [(
             pub: Bool,
             modifier: FunModifier,
@@ -221,6 +224,7 @@ enum CoreDecl {
             body: CoreExpr
         )]
     )
+    case Error(ParserError, span: (Int, Int))
 }
 
 extension Decl {
@@ -262,15 +266,18 @@ extension Decl {
 
             return .Import(path: path, members: members)
         case let .Trait(pub, name, args, members):
-            return .Trait(pub: pub, name: name, args: args, methods: members.map({ (modifier, name, args, retTy) in
-                (modifier: modifier, name: name, args: args.map({ (pat, ty) in (pat.core(), ty) }), ret: retTy)
-            }))
-        case let .TraitImpl(params, trait, args, ty, methods):
+            return .Trait(
+                pub: pub,
+                name: name,
+                args: args,
+                methods: members.map({ (modifier, name, args, retTy) in
+                    (modifier: modifier, name: name, args: args, ret: retTy)
+                })
+            )
+        case let .TraitImpl(trait, args, methods):
             return .TraitImpl(
-                params: params,
                 trait: trait,
                 args: args,
-                ty: ty,
                 methods: methods.map({ (pub, modifier, name, args, retTy, body) in
                     (
                         pub: pub,
@@ -282,6 +289,8 @@ extension Decl {
                     )
                 })
             )
+        case let .Error(err, span):
+            return .Error(err, span: span)
         }
     }
 }

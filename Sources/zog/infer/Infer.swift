@@ -503,8 +503,10 @@ extension CoreDecl {
                 })),
                 pub: pub
             )
-        case let .TraitImpl(pub, params, trait, args, methods):
+        case let .TraitImpl(trait, args, methods):
             // TODO:
+            break
+        case .Error(_, _):
             break
         }
     }

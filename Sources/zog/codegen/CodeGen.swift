@@ -360,8 +360,11 @@ extension CoreDecl {
         case let .Trait(pub, name, args, methods):
             // TODO: implement traits
             return []
-        case let .TraitImpl(pub, params, trait, args, methods):
+        case let .TraitImpl(trait, args, methods):
             return []
+
+        case .Error(_, _):
+            fatalError("error decl should have been handled before")
         }
     }
 }
