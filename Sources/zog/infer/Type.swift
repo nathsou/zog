@@ -192,7 +192,7 @@ enum TyVar: Equatable, CustomStringConvertible {
     case link(Ty)
     case generic(TyVarId)
 
-    static func showTyVarId(_ id: TyVarId) -> String {
+    static func showId(_ id: TyVarId) -> String {
         let char = UnicodeScalar(65 + Int(id % 26))!
 
         if id > 26 {
@@ -205,11 +205,11 @@ enum TyVar: Equatable, CustomStringConvertible {
     public var description: String {
         switch self {
         case let .unbound(id, _):
-            return TyVar.showTyVarId(id)
+            return TyVar.showId(id)
         case let .link(ty):
             return "\(ty)"
         case let .generic(id):
-            return "'" + TyVar.showTyVarId(id)
+            return "'" + TyVar.showId(id)
         }
     }
 
@@ -358,14 +358,14 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         
         func canonicalized(_ id: TyVarId) -> String {
             if !canonical {
-                return TyVar.showTyVarId(id)
+                return TyVar.showId(id)
             }
             
             if let v = tyVarNames[id] {
                 return v
             }
             
-            let v = TyVar.showTyVarId(UInt(tyVarNames.count))
+            let v = TyVar.showId(UInt(tyVarNames.count))
             tyVarNames[id] = v
             return v
         }

@@ -396,7 +396,7 @@ enum Decl: CustomStringConvertible {
             return "pub ".when(pub) + "type \(name) = \(ty)"
         case let .TypeAlias(pub, name, args, ty):
             let argsFmt = args
-                .map({ TyVar.showTyVarId($0).lowercased() })
+                .map({ TyVar.showId($0).lowercased() })
                 .commas()
             
             return "pub ".when(pub) + "type \(name)<\(argsFmt)> = \(ty)"
@@ -410,7 +410,7 @@ enum Decl: CustomStringConvertible {
             }
             
             let argsFmt = args
-                .map({ TyVar.showTyVarId($0).lowercased() })
+                .map({ TyVar.showId($0).lowercased() })
                 .commas()
             
             return "pub ".when(pub) + "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
@@ -430,7 +430,7 @@ enum Decl: CustomStringConvertible {
             return "import \"\(path)\"" 
         case let .Trait(pub, name, args, members):
             let argsFmt = args
-                .map({ TyVar.showTyVarId($0).lowercased() })
+                .map({ TyVar.showId($0).lowercased() })
                 .commas()
             
             let membersFmt = members

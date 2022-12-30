@@ -465,7 +465,7 @@ class Parser {
     // traitDecl -> 'pub'? 'trait' upperIdentifier typeParams? '{' decl* '}'
     func traitDecl(pub: Bool) throws -> Decl {
         let name = try upperIdentifier()
-        let args = try typeParams()
+        let params = try typeParams()
         var methods = [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]() 
 
         try consume(.symbol(.lcurlybracket))
@@ -486,7 +486,7 @@ class Parser {
         try consume(.symbol(.rcurlybracket))
         try consume(.symbol(.semicolon))
         
-        return .Trait(pub: pub, name: name, args: args, methods: methods)
+        return .Trait(pub: pub, name: name, args: params, methods: methods)
     }
 
     // traitImplDecl -> 'impl' 'trait' upperIdentifier typeParams? '{' decl* '}'

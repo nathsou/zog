@@ -22,7 +22,7 @@ struct BuiltIn {
                 }
                 
                 let count = tyVarIdMapping.count
-                let name = TyVar.showTyVarId(UInt(count))
+                let name = TyVar.showId(UInt(count))
                 tyVarIdMapping[id] = name
                 return name
             }

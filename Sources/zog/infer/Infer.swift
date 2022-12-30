@@ -492,20 +492,57 @@ extension CoreDecl {
                 name: name,
                 args: args,
                 methods: Dictionary(uniqueKeysWithValues: methods.map({ (_, name, args, ret) in
-                    let isStatic: Bool 
-                    if case .variable("self") = args.first?.0 {
-                        isStatic = false
-                    } else {
-                        isStatic = true
-                    }
-
-                    return (name, (ty: .fun(args.map({ $0.1 }), ret), isStatic: isStatic))
+                    (name, (ty: .fun(args.map({ $0.1 }), ret), isStatic: false))
                 })),
                 pub: pub
             )
         case let .TraitImpl(trait, args, methods):
-            // TODO:
-            break
+            if let traitInfo = ctx.env.lookupTrait(trait) {
+                if traitInfo.args.count != args.count {
+                    throw TypeError.invalidTraitImplParams(
+                        trait,
+                        expected: traitInfo.args.count,
+                        got: args.count
+                    )
+                }
+
+                let expectedMethods = Set(traitInfo.methods.keys)
+                let implMethods = Set(methods.map({ $0.name }))
+
+                let missingMethods = expectedMethods.subtracting(implMethods)
+                let extraneousMethods = implMethods.subtracting(expectedMethods)
+
+                if !missingMethods.isEmpty {
+                    throw TypeError.missingTraitImplMethods(trait: trait, methods: Array(missingMethods))
+                }
+
+                if !extraneousMethods.isEmpty {
+                    throw TypeError.extraneousTraitImplMethods(trait: trait, methods: Array(extraneousMethods))
+                }
+
+                for (name, method) in traitInfo.methods {
+                    let subst = Dictionary(uniqueKeysWithValues: zip(traitInfo.args, args))
+                    let expectedTy = method.ty.substitute(subst)
+                    let implMethod = methods.first(where: { $0.name == name })!
+                    let implTy = Ty.fun(
+                        implMethod.args.map({ arg in arg.1 ?? .fresh(level: level) }),
+                        implMethod.ret ?? .fresh(level: level)
+                    ) 
+
+                    do {
+                        try ctx.env.unify(expectedTy, implTy)
+                    } catch {
+                        throw TypeError.invalidTraitImplMethodSignature(
+                            trait: trait,
+                            method: name,
+                            error: error 
+                        )
+                    }
+                }
+
+            } else {
+                throw TypeError.unknownTrait(trait)
+            }
         case .Error(_, _):
             break
         }
