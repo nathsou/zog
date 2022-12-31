@@ -27,10 +27,10 @@ enum TypeError: Error, CustomStringConvertible {
     case missingVariantArgument(enumName: String, variant: String)
     case couldNotResolveMember(modulePath: String, member: String)
     case unknownTrait(String)
-    case invalidTraitImplParams(String, expected: Int, got: Int)
     case missingTraitImplMethods(trait: String, methods: [String])
     case extraneousTraitImplMethods(trait: String, methods: [String])
     case invalidTraitImplMethodSignature(trait: String, method: String, error: Error)
+    case unknownMethodForType(String, Ty)
 
     public var description: String {
         switch self {
@@ -79,14 +79,14 @@ enum TypeError: Error, CustomStringConvertible {
             return "Could not resolve member '\(member)' from module '\(modulePath)'"
         case let .unknownTrait(trait):
             return "Unknown trait '\(trait)'"
-        case let .invalidTraitImplParams(trait, expected, got):
-            return "Trait '\(trait)' expects \(expected) type parameter(s), received \(got)"
         case let .missingTraitImplMethods(trait, methods):
             return "Implementation of trait '\(trait)' is missing methods: \(methods.joined(separator: ", "))"
         case let .extraneousTraitImplMethods(trait, methods):
             return "Implementation of trait '\(trait)' has extraneous methods: \(methods.joined(separator: ", "))"
         case let .invalidTraitImplMethodSignature(trait, method, error):
             return "Implementation of trait '\(trait)' has an invalid signature for method '\(method)':\n\t\(error)"
+        case let .unknownMethodForType(method, ty):
+            return "No implementation of method '\(method)' found for type '\(ty)'"
         }
     }
 }

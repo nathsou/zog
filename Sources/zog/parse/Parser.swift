@@ -267,11 +267,7 @@ class Parser {
         switch peek() {
         case .identifier("impl"):
             advance()
-            if match(.identifier("trait")) {
-                return try traitImplDecl()
-            }
-
-            fatalError("unimplemented: impl")
+            return try traitImplDecl()
         case .identifier("pub"):
             advance()
             return declaration(pub: true)
@@ -462,12 +458,10 @@ class Parser {
         return (modifier, name, args, ret)
     }
     
-    // traitDecl -> 'pub'? 'trait' upperIdentifier typeParams? '{' decl* '}'
+    // traitDecl -> 'pub'? 'trait' upperIdentifier '{' decl* '}'
     func traitDecl(pub: Bool) throws -> Decl {
         let name = try upperIdentifier()
-        let params = try typeParams()
         var methods = [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]() 
-
         try consume(.symbol(.lcurlybracket))
         
         while !check(.symbol(.rcurlybracket)) {
@@ -486,19 +480,23 @@ class Parser {
         try consume(.symbol(.rcurlybracket))
         try consume(.symbol(.semicolon))
         
-        return .Trait(pub: pub, name: name, args: params, methods: methods)
+        return .Trait(pub: pub, name: name, methods: methods)
     }
 
-    // traitImplDecl -> 'impl' 'trait' upperIdentifier typeParams? '{' decl* '}'
+    // traitImplDecl -> 'impl' upperIdentifier 'for' ty '{' decl* '}'
     func traitImplDecl() throws -> Decl {
         let name = try upperIdentifier()
-        var args = [Ty]()
-        if match(.symbol(.lss)) {
-            args = try commas(type)
-            try consume(.symbol(.gtr))
-        } 
+        try consume(.keyword(.For))
+        let ty = try type()
 
-        var methods = [(pub: Bool, modifier: FunModifier, name: String, args: [(Pattern, Ty?)], ret: Ty?, body: Expr)]() 
+        var methods = [(
+            pub: Bool,
+            modifier: FunModifier,
+            name: String,
+            args: [(Pattern, Ty?)],
+            ret: Ty?, body: Expr
+        )]()
+
         try consume(.symbol(.lcurlybracket))
         
         while !check(.symbol(.rcurlybracket)) {
@@ -514,7 +512,7 @@ class Parser {
         try consume(.symbol(.rcurlybracket))
         try consume(.symbol(.semicolon))
         
-        return .TraitImpl(trait: name, args: args, methods: methods)
+        return .TraitImpl(trait: name, ty: ty, methods: methods)
     }
 
     // ------ statements ------

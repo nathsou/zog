@@ -37,7 +37,7 @@ class TypeContext {
 extension CoreExpr {
     func infer(_ ctx: TypeContext, _ level: UInt, expectedTy: Ty? = nil) throws -> Ty {
         let tau: Ty
-        
+
         if let expectedTy {
             try ctx.env.unify(self.ty, expectedTy)
         }
@@ -47,7 +47,7 @@ extension CoreExpr {
             tau = lit.ty
         case let .Var(name, _):
             if let info = ctx.env.lookup(name) {
-                tau = info.ty.instantiate(level: level)
+                tau = info.ty.instantiate(level: level, env: ctx.env)
             } else {
                 throw TypeError.unknownVariable(name)
             }
@@ -87,7 +87,7 @@ extension CoreExpr {
                 try ctx.env.unify(retTy, actualRetTy)
             }
             TypeEnv.popFunctionInfo()
-            
+           
             tau = .fun(argTys, actualRetTy)
         case let .Call(f, args, retTy):
             let argsTy = try args.map({ arg in try arg.infer(ctx, level) })
@@ -288,7 +288,29 @@ extension CoreExpr {
             try ctx.env.unify(enumTy, ty)
             tau = ty
         case let .MethodCall(subject, method, args, ty):
-            // TODO:
+            let traits = ctx.env.traitMethods[method] ?? []
+
+            let subjectTy = try subject.infer(ctx, level)
+
+            switch traits.count {
+            case 0:
+                throw TypeError.unknownMethodForType(method, subject.ty)
+            case 1:
+                let trait = traits[0]
+                ctx.env.propagateTraits(traits: [trait], ty: subjectTy)
+                let info = ctx.env.lookupTrait(trait)!
+                let methodInfo = info.methods[method]!
+                let methodTy = methodInfo.ty.instantiate(level: level, env: ctx.env)
+                let methodCtx = ctx.child()
+                methodCtx.env.declareAlias(name: "Self", args: [], ty: subjectTy, pub: false, level: level)
+                let funTy = Ty.fun([subjectTy] + args.map({ $0.ty }), ty)
+                try methodCtx.env.unify(methodTy, funTy)
+            default:
+                // should be handled when type checking impl blocks
+                // i.e overlapping method implementations for a given type are not allowed
+                fatalError("multiple traits for method '\(method)'")
+            }
+
             tau = ty
         case let .BuiltInCall(name, args, _):
             for arg in args {
@@ -487,25 +509,16 @@ extension CoreDecl {
             } else {
                 fatalError("Could not resolve module \(path)")
             } 
-        case let .Trait(pub, name, args, methods):
+        case let .Trait(pub, name, methods):
             ctx.env.declareTrait(
                 name: name,
-                args: args,
                 methods: Dictionary(uniqueKeysWithValues: methods.map({ (_, name, args, ret) in
                     (name, (ty: .fun(args.map({ $0.1 }), ret), isStatic: false))
                 })),
                 pub: pub
             )
-        case let .TraitImpl(trait, args, methods):
+        case let .TraitImpl(trait, ty, methods):
             if let traitInfo = ctx.env.lookupTrait(trait) {
-                if traitInfo.args.count != args.count {
-                    throw TypeError.invalidTraitImplParams(
-                        trait,
-                        expected: traitInfo.args.count,
-                        got: args.count
-                    )
-                }
-
                 let expectedMethods = Set(traitInfo.methods.keys)
                 let implMethods = Set(methods.map({ $0.name }))
 
@@ -520,9 +533,11 @@ extension CoreDecl {
                     throw TypeError.extraneousTraitImplMethods(trait: trait, methods: Array(extraneousMethods))
                 }
 
+                let implCtx = ctx.child()
+                implCtx.env.declareAlias(name: "Self", args: [], ty: ty, pub: false, level: level)
+
                 for (name, method) in traitInfo.methods {
-                    let subst = Dictionary(uniqueKeysWithValues: zip(traitInfo.args, args))
-                    let expectedTy = method.ty.substitute(subst)
+                    let expectedTy = method.ty
                     let implMethod = methods.first(where: { $0.name == name })!
                     let implTy = Ty.fun(
                         implMethod.args.map({ arg in arg.1 ?? .fresh(level: level) }),
@@ -530,7 +545,7 @@ extension CoreDecl {
                     ) 
 
                     do {
-                        try ctx.env.unify(expectedTy, implTy)
+                        try implCtx.env.unify(expectedTy, implTy)
                     } catch {
                         throw TypeError.invalidTraitImplMethodSignature(
                             trait: trait,

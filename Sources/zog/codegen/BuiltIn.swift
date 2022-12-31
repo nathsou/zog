@@ -38,7 +38,7 @@ struct BuiltIn {
                         )
                     case let .link(to):
                         return typeOf(to)
-                    case let .unbound(id, _):
+                    case let .unbound(id, _, _):
                         return typeVariant(
                             "Variable",
                             val: .Literal(.str(tyVarName(id)), ty: .str)

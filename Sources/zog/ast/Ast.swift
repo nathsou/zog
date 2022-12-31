@@ -376,12 +376,11 @@ enum Decl: CustomStringConvertible {
     case Trait(
         pub: Bool,
         name: String,
-        args: [TyVarId],
         methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]
     )
     case TraitImpl(
         trait: String,
-        args: [Ty],
+        ty: Ty,
         methods: [(pub: Bool, modifier: FunModifier, name: String, args: [(Pattern, Ty?)], ret: Ty?, body: Expr)]
     )
     case Error(ParserError, span: (Int, Int))
@@ -428,11 +427,7 @@ enum Decl: CustomStringConvertible {
             return "import \"\(path)\" { \(members.commas()) }" 
         case let .Import(path, nil):
             return "import \"\(path)\"" 
-        case let .Trait(pub, name, args, members):
-            let argsFmt = args
-                .map({ TyVar.showId($0).lowercased() })
-                .commas()
-            
+        case let .Trait(pub, name, members):
             let membersFmt = members
                 .map({ (modifier, name, args, retTy) in
                     let argsFmt = args
@@ -443,12 +438,8 @@ enum Decl: CustomStringConvertible {
                 })
                 .newlines()
 
-            return "pub ".when(pub) + "trait \(name)" + "<\(argsFmt)>".when(!args.isEmpty) +  "{\n\(membersFmt)\n}"
-        case let .TraitImpl(trait, args, methods):
-            let argsFmt = args
-                .map({ $0.description })
-                .commas()
-            
+            return "pub ".when(pub) + "trait \(name) {\n\(membersFmt)\n}"
+        case let .TraitImpl(trait, ty, methods):
             let methodsFmt = methods
                 .map({ (pub, modifier, name, args, retTy, body) in
                     let argsFmt = args
@@ -459,7 +450,7 @@ enum Decl: CustomStringConvertible {
                 })
                 .newlines()
             
-            return "impl trait" + " \(trait)" + "<\(argsFmt)>".when(!args.isEmpty) + " {\n\(methodsFmt)\n}"
+            return "impl" + " \(trait) for \(ty)" + " {\n\(methodsFmt)\n}"
         case let .Error(err, span):
             return "\(err) at \(span)"
         }

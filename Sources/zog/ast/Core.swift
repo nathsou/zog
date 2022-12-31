@@ -209,12 +209,11 @@ enum CoreDecl {
     case Trait(
         pub: Bool,
         name: String,
-        args: [TyVarId],
         methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]
     )
     case TraitImpl(
         trait: String,
-        args: [Ty],
+        ty: Ty,
         methods: [(
             pub: Bool,
             modifier: FunModifier,
@@ -265,19 +264,18 @@ extension Decl {
             }
 
             return .Import(path: path, members: members)
-        case let .Trait(pub, name, args, members):
+        case let .Trait(pub, name, members):
             return .Trait(
                 pub: pub,
                 name: name,
-                args: args,
                 methods: members.map({ (modifier, name, args, retTy) in
                     (modifier: modifier, name: name, args: args, ret: retTy)
                 })
             )
-        case let .TraitImpl(trait, args, methods):
+        case let .TraitImpl(trait, ty, methods):
             return .TraitImpl(
                 trait: trait,
-                args: args,
+                ty: ty,
                 methods: methods.map({ (pub, modifier, name, args, retTy, body) in
                     (
                         pub: pub,

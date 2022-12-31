@@ -1,12 +1,27 @@
-
 let showNum: num => str = raw { n => String(n) }
 
-trait Show<t> {
-    fun show(self: t): str
+trait Show {
+    fun show(self: Self): str
 }
 
-impl trait Show<num> {
+impl Show for num {
     fun show(n) {
         showNum(n) 
     }
 }
+
+impl Show for str {
+    fun show(s) {
+        s 
+    }
+}
+
+fun f(x) {
+    x.show()
+}
+
+// impl Show for a[] where a: Show {
+//    fun show(elems) {
+//        "[" ++ elems->map(show)->join(", ") ++ "]"
+//    }
+// }

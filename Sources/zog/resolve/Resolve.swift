@@ -110,6 +110,19 @@ class Resolver {
         let core = try prog.map({ decl in try decl.core(ctx, 0) }).compactMap({ x in x })
         try core.forEach({ decl in try decl.infer(ctx, 0) })
 
+        if globalParameters.showTypes {
+            for decl in core {
+                switch decl {
+                    case let .Let(_, _, pat, ty, _):
+                        if let ty {
+                            print("\(pat) : \(ty)")
+                        }
+                    default:
+                        break
+                }
+            }
+        }
+
         let moduleName = String(fileName.split(separator: ".").first!)
         let mod = Module(name: moduleName, env: ctx.env, decls: core, level: level)
         modules[path] = mod

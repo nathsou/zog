@@ -240,7 +240,8 @@ extension CoreExpr {
                 return tag
             }
         case let .MethodCall(subject, method, args, ty):
-            fatalError("not implemented \(method) on \(subject)")
+            // fatalError("not implemented \(method) on \(subject)")
+            return .raw("/* not implemented \(method) on \(subject) */")
         case let .BuiltInCall(name, args, _):
             return try BuiltIn.codegen(name: name, args: args, ctx: ctx)
         }
@@ -357,7 +358,7 @@ extension CoreDecl {
                     path: zogPath
                 )
             ]
-        case let .Trait(pub, name, args, methods):
+        case let .Trait(pub, args, methods):
             // TODO: implement traits
             return []
         case let .TraitImpl(trait, args, methods):

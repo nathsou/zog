@@ -208,7 +208,7 @@ extension Ty {
             switch v.ref {
             case let .link(to):
                 return to.simplified()
-            case let .unbound(id, _), let .generic(id):
+            case let .unbound(id, _, _), let .generic(id):
                 return SimplifiedTy(ctor: "var", args: [SimplifiedTy(ctor: "\(id)", args: [])])
             }
         case let .const(ctor, args):
