@@ -111,15 +111,8 @@ class Resolver {
         try core.forEach({ decl in try decl.infer(ctx, 0) })
 
         if globalParameters.showTypes {
-            for decl in core {
-                switch decl {
-                    case let .Let(_, _, pat, ty, _):
-                        if let ty {
-                            print("\(pat) : \(ty.canonical)")
-                        }
-                    default:
-                        break
-                }
+            for (name, info) in ctx.env.vars {
+                print("\(name): \(info.ty.canonical)")
             }
         }
 

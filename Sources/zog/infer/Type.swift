@@ -217,7 +217,7 @@ enum TyVar: Equatable, CustomStringConvertible {
     
     case unbound(id: TyVarId, level: UInt, context: Ref<Context> = Ref([]))
     case link(Ty)
-    case generic(TyVarId)
+    case generic(TyVarId, context: Ref<Context> = Ref([]))
 
     static func showId(_ id: TyVarId) -> String {
         let char = UnicodeScalar(65 + Int(id % 26))!
@@ -233,14 +233,14 @@ enum TyVar: Equatable, CustomStringConvertible {
         switch self {
         case let .unbound(id, _, context):
             if !context.ref.isEmpty {
-                return context.ref.joined(separator: ".") + ": " + TyVar.showId(id)
+                return TyVar.showId(id) + ": " + context.ref.joined(separator: " + ")
             } 
             
             return TyVar.showId(id)
         case let .link(ty):
             return "\(ty)"
-        case let .generic(id):
-            return "'" + TyVar.showId(id)
+        case let .generic(id, context):
+            return TyVar.showId(id).lowercased() + ": " + context.ref.joined(separator: " + ")
         }
     }
 
@@ -420,7 +420,17 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                     return canonicalized(id)
                 case let .link(to):
                     return go(to)
-                case let .generic(id):
+                case let .generic(id, traits):
+                    if !traits.ref.isEmpty {
+                        if tyVarTraits.keys.contains(id) {
+                            for trait in traits.ref {
+                                tyVarTraits[id]!.insert(trait)
+                            }
+                        } else {
+                            tyVarTraits[id] = Set(traits.ref)
+                        }
+                    }
+
                     generics.insert(id)
                     return canonicalized(id).lowercased()
                 }
@@ -492,8 +502,8 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                     return mappingFunc(id) ?? .variable(Ref(.unbound(id: id, level: level, context: Ref(Array(traits.ref)))))
                 case let .link(to):
                     return aux(to)
-                case let .generic(id):
-                    return mappingFunc(id) ?? .variable(Ref(.generic(id)))
+                case let .generic(id, context):
+                    return mappingFunc(id) ?? .variable(Ref(.generic(id, context: Ref(Array(context.ref)))))
                 }
             case let .const(name, args):
                 return .const(name, args.map(aux))
@@ -517,7 +527,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
             switch v.ref {
             case let .link(t):
                 return t.subTypes()
-            case .unbound(_, _, _), .generic(_):
+            case .unbound(_, _, _), .generic(_, _):
                 return []
             }
         case let .const(_, args):
@@ -540,7 +550,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                     go(t)
                 case let .unbound(id, _, _):
                     vars.insert(id)
-                case .generic(_):
+                case .generic(_, _):
                     break
                 }
             case let .const(_, args):
@@ -569,7 +579,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                     go(t)
                 case let .unbound(_, _, traits):
                     bounds.append(contentsOf: traits.ref)
-                case .generic(_):
+                case .generic(_, _):
                     break
                 }
             case let .const(_, args):
@@ -607,7 +617,7 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
                 if otherLvl > level {
                     v.ref = .unbound(id: otherId, level: level, context: traits)
                 }
-            case .generic(_):
+            case .generic(_, _):
                 fatalError("generic ty")
          }
         case let .const(_, args):
@@ -645,7 +655,7 @@ extension Ref<TyVar> {
             }
         case .link(_):
             fatalError("linking to a link")
-        case .generic(_):
+        case .generic(_, _):
             fatalError("linking to a generic")
         }
     }
@@ -686,7 +696,7 @@ extension TypeEnv {
                         v.linkTo(ty, subst)
                     case let .link(to):
                         eqs.append((to, ty))
-                    case .generic(_):
+                    case .generic(_, _):
                         throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
                     }
                 case let (.record(r1), .record(r2)):
@@ -830,8 +840,9 @@ extension Ty {
         switch self {
         case let .variable(v):
             switch v.ref {
-            case let .unbound(id, lvl, _) where lvl > level:
-                return .variable(Ref(.generic(id)))
+            case let .unbound(id, lvl, traits) where lvl > level:
+                return .variable(Ref(.generic(id, context: traits)))
+
             case let .link(to):
                 return to.generalize(level: level)
             default:
@@ -860,7 +871,7 @@ extension Ty {
                 case let .unbound(_, _, traits):
                     try env.propagateTraits(traits: traits.ref, ty: ty)
                     return ty
-                case let .generic(id):
+                case let .generic(id, _):
                     if let inst = idVarMap[id] {
                         return inst
                     } else {

@@ -28,6 +28,9 @@ fun yo() {
     print(17)
 }
 
+let id = x => x
+
+
 // impl Show for a[] where a: Show {
 //    fun show(elems) {
 //        "[" ++ elems->map(show)->join(", ") ++ "]"

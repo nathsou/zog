@@ -31,7 +31,7 @@ struct BuiltIn {
                 switch ty {
                 case let .variable(v):
                     switch v.ref {
-                    case let .generic(id):
+                    case let .generic(id, _):
                         return typeVariant(
                             "Variable",
                             val: .Literal(.str(tyVarName(id).lowercased()), ty: .str)
