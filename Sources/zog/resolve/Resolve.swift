@@ -115,7 +115,7 @@ class Resolver {
                 switch decl {
                     case let .Let(_, _, pat, ty, _):
                         if let ty {
-                            print("\(pat) : \(ty)")
+                            print("\(pat) : \(ty.canonical)")
                         }
                     default:
                         break

@@ -47,7 +47,7 @@ extension CoreExpr {
             tau = lit.ty
         case let .Var(name, _):
             if let info = ctx.env.lookup(name) {
-                tau = info.ty.instantiate(level: level, env: ctx.env)
+                tau = try info.ty.instantiate(level: level, env: ctx.env)
             } else {
                 throw TypeError.unknownVariable(name)
             }
@@ -289,7 +289,6 @@ extension CoreExpr {
             tau = ty
         case let .MethodCall(subject, method, args, ty):
             let traits = ctx.env.traitMethods[method] ?? []
-
             let subjectTy = try subject.infer(ctx, level)
 
             switch traits.count {
@@ -297,10 +296,10 @@ extension CoreExpr {
                 throw TypeError.unknownMethodForType(method, subject.ty)
             case 1:
                 let trait = traits[0]
-                ctx.env.propagateTraits(traits: [trait], ty: subjectTy)
+                try ctx.env.propagateTraits(traits: [trait], ty: subjectTy)
                 let info = ctx.env.lookupTrait(trait)!
                 let methodInfo = info.methods[method]!
-                let methodTy = methodInfo.ty.instantiate(level: level, env: ctx.env)
+                let methodTy = try methodInfo.ty.instantiate(level: level, env: ctx.env)
                 let methodCtx = ctx.child()
                 methodCtx.env.declareAlias(name: "Self", args: [], ty: subjectTy, pub: false, level: level)
                 let funTy = Ty.fun([subjectTy] + args.map({ $0.ty }), ty)
@@ -555,6 +554,7 @@ extension CoreDecl {
                     }
                 }
 
+                ctx.env.declareTraitImpl(trait: trait, implementee: ty, context: [:])
             } else {
                 throw TypeError.unknownTrait(trait)
             }

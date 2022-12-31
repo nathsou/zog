@@ -16,8 +16,8 @@ impl Show for str {
     }
 }
 
-fun f(x) {
-    x.show()
+fun f() {
+    3.show()
 }
 
 // impl Show for a[] where a: Show {

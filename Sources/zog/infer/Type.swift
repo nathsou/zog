@@ -61,6 +61,7 @@ class TypeEnv: CustomStringConvertible {
     typealias TraitImplInfo = (implementee: Ty, context: [TyVarId:TyVar.Context])
     
     let parent: TypeEnv?
+    let depth: Int
     var vars = [String:VarInfo]()
     var aliases = [String:AliasInfo]()
     var enums = [String:EnumInfo]()
@@ -72,10 +73,12 @@ class TypeEnv: CustomStringConvertible {
 
     init() {
         parent = nil
+        depth = 0
     }
     
     init(parent: TypeEnv? = nil) {
         self.parent = parent
+        depth = (parent?.depth ?? -1) + 1
     }
     
     func lookup(_ name: String) -> VarInfo? {
@@ -109,7 +112,7 @@ class TypeEnv: CustomStringConvertible {
     func lookupAlias(name: String, args: [Ty]) throws -> Ty {
         if let alias = aliases[name] {
             let subst = Dictionary(uniqueKeysWithValues: zip(alias.args, args))
-            return alias.ty.substitute(subst).instantiate(level: 0, env: self)
+            return try alias.ty.substitute(subst).instantiate(level: 0, env: self)
         }
         
         if let parent {
@@ -173,12 +176,21 @@ class TypeEnv: CustomStringConvertible {
         return traits[name]
     }
 
+    func declareTraitImpl(trait: String, implementee: Ty, context: [TyVarId:TyVar.Context]) {
+        if traitImpls[trait] == nil {
+            traitImpls[trait] = [TraitImplInfo(implementee: implementee, context: context)]
+        } else {
+            traitImpls[trait]!.append(TraitImplInfo(implementee: implementee, context: context))
+        }
+    }
+
     func child() -> TypeEnv {
         let child = TypeEnv.init(parent: self)
         child.aliases = aliases
         child.enums = enums
         child.traits = traits
         child.traitMethods = traitMethods
+        child.traitImpls = traitImpls
         return child
     }
     
@@ -302,16 +314,16 @@ enum Row: Equatable {
         return .init(uniqueKeysWithValues: entries(sorted: false))
     }
     
-    func map(types f: (_ ty: Ty) -> Ty) -> Row {
+    func map(types f: (_ ty: Ty) throws -> Ty) rethrows -> Row {
         switch self {
         case .empty:
             return .empty
         case let .extend(field, ty, tail):
             switch tail {
             case let .record(row):
-                return .extend(field: field, ty: f(ty), tail: .record(row.map(types: f)))
+                return .extend(field: field, ty: try f(ty), tail: .record(try row.map(types: f)))
             default:
-                return .extend(field: field, ty: f(ty), tail: tail)
+                return .extend(field: field, ty: try f(ty), tail: tail)
             }
         }
     }
@@ -558,13 +570,13 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
             switch v.ref {
             case let .link(t):
                 try go(t)
-            case let .unbound(id: otherId , level: otherLvl, _):
+            case let .unbound(id: otherId , level: otherLvl, traits):
                 if otherId == id {
                     throw TypeError.recursiveType(.variable(Ref(.unbound(id: id, level: level))), ty)
                 }
 
                 if otherLvl > level {
-                    v.ref = .unbound(id: otherId, level: level)
+                    v.ref = .unbound(id: otherId, level: level, context: traits)
                 }
             case .generic(_):
                 fatalError("generic ty")
@@ -591,9 +603,28 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
 
 let primitiveTypes = Set(["num", "str", "bool", "unit", "Tuple", "Array", "Map", "Iterator"])
 
+typealias Subst = Ref<[TyVarId:Ty]>
+
+extension Ref<TyVar> {
+    func linkTo(_ ty: Ty, _ subst: Subst? = nil) {
+        switch self.ref {
+        case let .unbound(id, _, _):
+            if let subst = subst {
+                subst.ref[id] = ty
+            } else {
+                self.ref = .link(ty) 
+            }
+        case .link(_):
+            fatalError("linking to a link")
+        case .generic(_):
+            fatalError("linking to a generic")
+        }
+    }
+}
+
 extension TypeEnv {
     // see https://github.com/tomprimozic/type-systems
-    func unify(_ s: Ty, _ t: Ty) throws {
+    func unify(_ s: Ty, _ t: Ty, subst: Subst? = nil) throws {
         let startingEq = (s, t)
         var eqs = [(s, t)]
         
@@ -617,9 +648,9 @@ extension TypeEnv {
                         }
                         
                         try occursCheckAdjustLevels(id: id, level: lvl, ty: ty)
-                        propagateTraits(traits: traits.ref, ty: ty) 
+                        try propagateTraits(traits: traits.ref, ty: ty) 
 
-                        v.ref = .link(ty)
+                        v.linkTo(ty, subst)
                     case let .link(to):
                         eqs.append((to, ty))
                     case .generic(_):
@@ -637,7 +668,7 @@ extension TypeEnv {
                             isTailUnbound = false
                         }
                         
-                        let tail2 = try rewriteRow(t, field: field1, ty: ty1)
+                        let tail2 = try rewriteRow(t, field: field1, ty: ty1, subst: subst)
                         
                         if isTailUnbound, case let .variable(v) = tail1, case .link(_) = v.ref {
                             throw TypeError.recursiveType(.record(r1), .record(r2))
@@ -654,7 +685,7 @@ extension TypeEnv {
         }
     }
     
-    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
+    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty, subst: Subst?) throws -> Ty {
         switch row2 {
         case .record(let row):
             switch row {
@@ -670,7 +701,7 @@ extension TypeEnv {
                     .extend(
                         field: field2,
                         ty: ty2,
-                        tail: try rewriteRow(tail2, field: field, ty: ty)
+                        tail: try rewriteRow(tail2, field: field, ty: ty, subst: subst)
                     )
                 )
             }
@@ -679,10 +710,10 @@ extension TypeEnv {
             case let .unbound(_, level, _):
                 let tail2 = Ty.fresh(level: level)
                 let row2 = Row.extend(field: field, ty: ty, tail: tail2)
-                v.ref = .link(.record(row2))
+                v.linkTo(.record(row2), subst)
                 return tail2
             case let .link(to):
-                return try rewriteRow(to, field: field, ty: ty)
+                return try rewriteRow(to, field: field, ty: ty, subst: subst)
             default:
                 break
             }
@@ -693,6 +724,7 @@ extension TypeEnv {
         throw TypeError.expectedRecordType(row2)
     }
 
+    // from "Implementing Type Classes" by John Peterson and Mark Jones
     // trait Show { fun show(self: Self): str }
     // impl Show for a[] where a: Show { fun show(elems): str { ... } }
     // impl Show for num { fun show(n): str { ... } }
@@ -708,8 +740,7 @@ extension TypeEnv {
     func findTraitImplContext(trait: String, ty: Ty) -> [TyVar.Context]? {
         if let impls = traitImpls[trait] {
             for (implementee, context) in impls {
-                // TODO: check that ty is unifiable with implementee
-                if true {
+                if unifyPure(implementee, ty) != nil {
                     return ty.subTypes().map({ subTy in
                         let subTyVars = subTy.unboundVars()
                         let subTyTraits = context
@@ -726,7 +757,7 @@ extension TypeEnv {
         return nil
     }
 
-    func propagateTraits(traits: TyVar.Context, ty: Ty) {
+    func propagateTraits(traits: TyVar.Context, ty: Ty) throws {
         if case let .variable(v) = ty.deref(), case let .unbound(_, _, context) = v.ref {
             for trait in traits {
                 if !context.ref.contains(trait) {
@@ -735,16 +766,28 @@ extension TypeEnv {
             }
         } else {
             for trait in traits { 
-                propagateTraitTyContext(trait: trait, ty: ty)
+                try propagateTraitTyContext(trait: trait, ty: ty)
             }
         }
     }
 
-    func propagateTraitTyContext(trait: String, ty: Ty) {
+    func propagateTraitTyContext(trait: String, ty: Ty) throws {
         if let s = findTraitImplContext(trait: trait, ty: ty) {
             for (k, subTy) in zip(s, ty.subTypes()) {
-                propagateTraits(traits: k, ty: subTy)
+                try propagateTraits(traits: k, ty: subTy)
             }
+        } else {
+            throw TypeError.noTraitImplForType(trait: trait, ty: ty)
+        }
+    }
+
+    func unifyPure(_ s: Ty, _ t: Ty) -> Subst? {
+        do {
+            let subst: Subst = Ref([:])
+            try unify(s, t, subst: subst)
+            return subst
+        } catch {
+            return nil
         }
     }
 }
@@ -770,19 +813,19 @@ extension Ty {
         }
     }
     
-    func instantiate(level: UInt, env: TypeEnv) -> Ty {
+    func instantiate(level: UInt, env: TypeEnv) throws -> Ty {
         var idVarMap = [TyVarId:Ty]()
         
-        func go(_ ty: Ty) -> Ty {
+        func go(_ ty: Ty) throws -> Ty {
             switch ty {
             case let .const(name, args):
-                return .const(name, args.map(go))
+                return .const(name, try args.map(go))
             case let .variable(v):
                 switch v.ref {
                 case let .link(to):
-                    return go(to)
+                    return try go(to)
                 case let .unbound(_, _, traits):
-                    env.propagateTraits(traits: traits.ref, ty: ty)
+                    try env.propagateTraits(traits: traits.ref, ty: ty)
                     return ty
                 case let .generic(id):
                     if let inst = idVarMap[id] {
@@ -794,12 +837,12 @@ extension Ty {
                     }
                 }
             case let .fun(args, ret):
-                return .fun(args.map(go), go(ret))
+                return .fun(try args.map(go), try go(ret))
             case let .record(row):
-                return .record(row.map(types: go))
+                return .record(try row.map(types: go))
             }
         }
         
-        return go(self)
+        return try go(self)
     }
 }

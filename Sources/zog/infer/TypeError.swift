@@ -31,6 +31,7 @@ enum TypeError: Error, CustomStringConvertible {
     case extraneousTraitImplMethods(trait: String, methods: [String])
     case invalidTraitImplMethodSignature(trait: String, method: String, error: Error)
     case unknownMethodForType(String, Ty)
+    case noTraitImplForType(trait: String, ty:Ty)
 
     public var description: String {
         switch self {
@@ -86,7 +87,9 @@ enum TypeError: Error, CustomStringConvertible {
         case let .invalidTraitImplMethodSignature(trait, method, error):
             return "Implementation of trait '\(trait)' has an invalid signature for method '\(method)':\n\t\(error)"
         case let .unknownMethodForType(method, ty):
-            return "No implementation of method '\(method)' found for type '\(ty)'"
+            return "No implementation of method '\(method)' found for type '\(ty.canonical)'"
+        case let .noTraitImplForType(trait, ty):
+            return "No implementation of trait '\(trait)' found for type '\(ty.canonical)'"
         }
     }
 }

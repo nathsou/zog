@@ -358,8 +358,7 @@ extension CoreDecl {
                     path: zogPath
                 )
             ]
-        case let .Trait(pub, args, methods):
-            // TODO: implement traits
+        case .Trait(_, _, _):
             return []
         case let .TraitImpl(trait, args, methods):
             return []
