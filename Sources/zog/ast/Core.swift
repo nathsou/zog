@@ -219,8 +219,9 @@ enum CoreDecl {
             modifier: FunModifier,
             name: String,
             args: [(CorePattern, Ty?)],
-            ret: Ty?,
-            body: CoreExpr
+            retTy: Ty?,
+            body: CoreExpr,
+            ty: Ty
         )]
     )
     case Error(ParserError, span: (Int, Int))
@@ -236,7 +237,7 @@ extension Decl {
         case let .TypeAlias(pub, name, args, ty):
             return .TypeAlias(pub: pub, name: name, args: args, ty: ty)
         case let .Fun(pub, modifier, name, args, retTy, body):
-            let funTy = Ty.fun(args.map({ $0.1 ?? .fresh(level: lvl) }), retTy ?? .fresh(level: lvl))
+            let funTy = Ty.fun(args.map({ $0.1 ?? .fresh(level: lvl + 1) }), retTy ?? .fresh(level: lvl + 1))
             return .Let(
                 pub: pub,
                 mut: false,
@@ -282,8 +283,9 @@ extension Decl {
                         modifier: modifier,
                         name: name,
                         args: args.map({ (pat, ty) in (pat.core(), ty) }),
-                        ret: retTy,
-                        body: body.core(ctx, lvl + 1)
+                        retTy: retTy,
+                        body: body.core(ctx, lvl + 1),
+                        ty: Ty.fresh(level: lvl)
                     )
                 })
             )

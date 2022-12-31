@@ -368,6 +368,7 @@ func inferLet(
     for (name, ty) in patternVars {
         // https://en.wikipedia.org/wiki/Value_restriction
         let genTy = !mut ? ty.generalize(level: level) : ty
+
         try ctx.env.declare(
             name,
             ty: genTy,
@@ -540,11 +541,12 @@ extension CoreDecl {
                     let implMethod = methods.first(where: { $0.name == name })!
                     let implTy = Ty.fun(
                         implMethod.args.map({ arg in arg.1 ?? .fresh(level: level) }),
-                        implMethod.ret ?? .fresh(level: level)
+                        implMethod.retTy ?? .fresh(level: level)
                     ) 
 
                     do {
                         try implCtx.env.unify(expectedTy, implTy)
+                        try implCtx.env.unify(implTy, implMethod.ty)
                     } catch {
                         throw TypeError.invalidTraitImplMethodSignature(
                             trait: trait,

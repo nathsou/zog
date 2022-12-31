@@ -2,7 +2,7 @@ import Foundation
 
 public var globalParameters = (
     showTypes: false,
-    showUnification: false 
+    showUnification: false
 )
 
 @main

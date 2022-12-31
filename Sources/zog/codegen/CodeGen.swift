@@ -15,11 +15,16 @@ class CoreContext {
     var statements = [JSStmt]()
     var rootVariables: Ref<[String:Int]>
     var localVariables = [String:String]()
+    var traitImpls: [String:[(ty: Ty, dict: String)]]
+    // we ensured during type-checking that there are no name clashes
+    var traitMethods: [String:String]
     
     init(parent: CoreContext? = nil, env: TypeEnv) {
         self.parent = parent
         self.rootVariables = parent?.rootVariables ?? Ref([:])
         self.env = env
+        self.traitImpls = parent?.traitImpls ?? [:]
+        self.traitMethods = parent?.traitMethods ?? [:]
     }
     
     func child() -> CoreContext {
@@ -64,7 +69,17 @@ class CoreContext {
             throw TypeError.unknownVariable(name)
         }
     }
-    
+
+    func lookupTraitMethod(_ name: String) throws -> String {
+        if let method = traitMethods[name] {
+            return method
+        } else if let parent {
+            return try parent.lookupTraitMethod(name)
+        } else {
+            throw TypeError.unknownVariable(name)
+        }
+    }
+
     func formatVarName(_ name: String, count: Int) -> String {
         if count == 1 {
             return name
@@ -239,9 +254,13 @@ extension CoreExpr {
             } else {
                 return tag
             }
-        case let .MethodCall(subject, method, args, ty):
-            // fatalError("not implemented \(method) on \(subject)")
-            return .raw("/* not implemented \(method) on \(subject) */")
+        case let .MethodCall(subject, method, args, _):
+            let trait = ctx.traitMethods[method]!
+            let dict = ctx.traitImpls[trait]!.first(where: { ctx.env.unifyPure($0.ty, subject.ty) != nil })!
+            return .call(
+                lhs: .objectAccess(.variable(dict.dict), field: method),
+                args: [try subject.codegen(ctx)] + (try args.map({ try $0.codegen(ctx) }))
+            )
         case let .BuiltInCall(name, args, _):
             return try BuiltIn.codegen(name: name, args: args, ctx: ctx)
         }
@@ -358,11 +377,41 @@ extension CoreDecl {
                     path: zogPath
                 )
             ]
-        case .Trait(_, _, _):
-            return []
-        case let .TraitImpl(trait, args, methods):
-            return []
+        case let .Trait(_, trait, methods):
+            for method in methods {
+                ctx.traitMethods[method.name] = trait
+            }
 
+            return []
+        case let .TraitImpl(trait, ty, methods):
+            let dictName = "$impl_\(trait)_" +
+                ty.canonical
+                    .replacingOccurrences(of: "<", with: "_")
+                    .replacingOccurrences(of: ">", with: "_")
+               
+            if ctx.traitImpls.keys.contains(trait) {
+                ctx.traitImpls[trait]!.append((ty, dictName))
+            } else {
+                ctx.traitImpls[trait] = [(ty, dictName)]
+            }
+
+            let dict = JSExpr.object(
+                try methods.map({ (pub, modifier, name, args, retTy, body, methodTy) in
+                    let funcExpr = CoreExpr.Fun(
+                        modifier: modifier,
+                        args: args,
+                        retTy: retTy,
+                        body: body,
+                        ty: methodTy
+                    )
+
+                    return (name, try funcExpr.codegen(ctx))
+                })
+            )
+
+        return [
+            .varDecl(export: false, const: true, .variable(dictName), dict)
+        ]
         case .Error(_, _):
             fatalError("error decl should have been handled before")
         }

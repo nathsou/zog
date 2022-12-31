@@ -557,6 +557,35 @@ indirect enum Ty: Equatable, CustomStringConvertible {
 
         return vars
     }
+
+    func traitBounds() -> TyVar.Context {
+        var bounds = TyVar.Context()
+
+        func go(_ ty: Ty) {
+            switch ty {
+            case let .variable(v):
+                switch v.ref {
+                case let .link(t):
+                    go(t)
+                case let .unbound(_, _, traits):
+                    bounds.append(contentsOf: traits.ref)
+                case .generic(_):
+                    break
+                }
+            case let .const(_, args):
+                args.forEach(go)
+            case let .fun(args, ret):
+                args.forEach(go)
+                go(ret)
+            case let .record(row):
+                row.entries(sorted: true).forEach({ (_, ty) in go(ty) })
+            }
+        }
+
+        go(self)
+
+        return bounds
+    }
     
     static func == (s: Ty, t: Ty) -> Bool {
         return "\(s)" == "\(t)"
@@ -629,6 +658,10 @@ extension TypeEnv {
         var eqs = [(s, t)]
         
         while let (s, t) = eqs.popLast() {
+            if globalParameters.showUnification {
+                print("unify \(s) with \(t)")
+            }
+
             if s != t {
                 switch (s, t) {
                 case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
