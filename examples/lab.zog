@@ -1,3 +1,6 @@
+
+declare console: { log: _ => () }
+
 let showNum: num => str = raw { n => String(n) }
 
 trait Show {
@@ -17,19 +20,16 @@ impl Show for str {
 }
 
 fun print(x) {
-    x.show()
+    (console.log)(x.show())
 }
 
-fun f() {
-    3.show()
+fun id(x) {
+    x
 }
 
-fun yo() {
-    print(17)
-}
+let _ = (id(1), id(true))
 
-let id = x => x
-
+print(17)
 
 // impl Show for a[] where a: Show {
 //    fun show(elems) {

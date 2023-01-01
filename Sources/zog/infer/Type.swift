@@ -472,12 +472,15 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         
         if !tyVarTraits.isEmpty {        
             let contextFmt = tyVarTraits.map({ (id, traits) in 
-                let name = canonicalized(id)
+                var name = canonicalized(id)
+                if generics.contains(id) {
+                    name = name.lowercased()
+                }
                 let traits = traits.joined(separator: " + ")
                 return "\(name): \(traits)"
             }).joined(separator: ", ")
 
-            return ("(\(rhs) where \(contextFmt))")
+            return ("\(rhs) where \(contextFmt)")
         }
 
         return rhs
@@ -568,8 +571,8 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         return vars
     }
 
-    func traitBounds() -> TyVar.Context {
-        var bounds = TyVar.Context()
+    func traitBounds() -> [String:[Ty]] {
+        var bounds = [String:[Ty]]()
 
         func go(_ ty: Ty) {
             switch ty {
@@ -577,10 +580,8 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                 switch v.ref {
                 case let .link(t):
                     go(t)
-                case let .unbound(_, _, traits):
-                    bounds.append(contentsOf: traits.ref)
-                case .generic(_, _):
-                    break
+                case let .unbound(_, _, traits), let .generic(_, context: traits):
+                    traits.ref.forEach({ bounds[$0, default: []].append(ty) })
                 }
             case let .const(_, args):
                 args.forEach(go)
@@ -595,6 +596,22 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         go(self)
 
         return bounds
+    }
+    
+    func tyVarId() -> TyVarId? {
+        switch self {
+        case let .variable(v):
+            switch v.ref {
+            case let .link(t):
+                return t.tyVarId()
+            case let .unbound(id, _, _):
+                return id
+            case let .generic(id, _):
+                return id
+            }
+        default:
+            return nil
+        }
     }
     
     static func == (s: Ty, t: Ty) -> Bool {
@@ -871,11 +888,13 @@ extension Ty {
                 case let .unbound(_, _, traits):
                     try env.propagateTraits(traits: traits.ref, ty: ty)
                     return ty
-                case let .generic(id, _):
+                case let .generic(id, traits):
                     if let inst = idVarMap[id] {
+                        try env.propagateTraits(traits: traits.ref, ty: inst)
                         return inst
                     } else {
                         let inst = Ty.fresh(level: level)
+                        try env.propagateTraits(traits: traits.ref, ty: inst)
                         idVarMap[id] = inst
                         return inst
                     }

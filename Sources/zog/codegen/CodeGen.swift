@@ -9,6 +9,11 @@ import Foundation
 
 let reservedIdentifiers = Set(["eval", "throw", "Infinity"])
 
+struct TraitDict: Hashable {
+    let trait: String
+    let id: TyVarId
+}
+
 class CoreContext {
     let env: TypeEnv
     let parent: CoreContext?
@@ -18,6 +23,7 @@ class CoreContext {
     var traitImpls: [String:[(ty: Ty, dict: String)]]
     // we ensured during type-checking that there are no name clashes
     var traitMethods: [String:String]
+    var traitDicts = [TraitDict:String]()
     
     init(parent: CoreContext? = nil, env: TypeEnv) {
         self.parent = parent
@@ -25,6 +31,7 @@ class CoreContext {
         self.env = env
         self.traitImpls = parent?.traitImpls ?? [:]
         self.traitMethods = parent?.traitMethods ?? [:]
+        self.traitDicts = parent?.traitDicts ?? [:]
     }
     
     func child() -> CoreContext {
@@ -80,6 +87,30 @@ class CoreContext {
         }
     }
 
+    func resolveTraitDict(trait: String, ty: Ty) -> String? {
+        // if this is a type variable, we need to look up the dictionary
+        if let id = ty.tyVarId() {
+            if let dict = traitDicts[TraitDict(trait: trait, id: id)] {
+                return dict
+            }
+        }
+
+        // otherwise, we need to look up the dictionary in the trait impls
+        if let impls = traitImpls[trait] {
+            for impl in impls {
+                if env.unifyPure(impl.ty, ty) != nil {
+                    return impl.dict
+                }
+            }
+        }
+
+        if let parent {
+            return parent.resolveTraitDict(trait: trait, ty: ty)
+        } else {
+            return nil
+        }
+    }
+
     func formatVarName(_ name: String, count: Int) -> String {
         if count == 1 {
             return name
@@ -108,10 +139,38 @@ extension CoreExpr {
         case let .BinaryOp(lhs, op, rhs, _):
             return .binaryOperation(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
         case let .Parens(expr, _): return .parens(try expr.codegen(ctx))
-        case let .Var(name, _): return .variable(try ctx.lookup(name))
-        case let .Fun(modifier, args, _, body, _):
+        case let .Var(name, traitBounds, _):
+            if !traitBounds.ref.isEmpty {
+                let dicts = traitBounds.ref.flatMap({ (trait, tys) in
+                    tys.map({ ty in
+                        if let dict = ctx.resolveTraitDict(trait: trait, ty: ty) {
+                            return JSExpr.variable(dict)
+                        } else {
+                            return nil
+                        }
+                    })
+                }).compactMap({ $0 })
+
+                return .call(lhs: .variable(try ctx.lookup(name)), args: dicts)
+            }
+
+            return .variable(try ctx.lookup(name))
+        case let .Fun(modifier, args, _, body, funTy):
+            let traitBounds = funTy.traitBounds()
             let funCtx = ctx.child()
             let newArgs = try args.map({ (arg, _) in try arg.codegen(funCtx) })
+            var dictArgs = [JSExpr]()
+
+            traitBounds.forEach({ (trait, tys) in
+                tys.forEach({ ty in
+                    if let id = ty.tyVarId() {
+                        let dictName = "$dict_\(trait)_\(id)"
+                        funCtx.traitDicts[TraitDict(trait: trait, id: id)] = dictName
+                        dictArgs.append(JSExpr.variable(dictName))
+                    }
+                })
+            })
+
             let ret = try body.codegen(funCtx)
             
             if case .undefined = ret {
@@ -121,12 +180,20 @@ extension CoreExpr {
                 funCtx.statements.append(.return_(ret))
             }
 
+            let f: JSExpr
+
             switch modifier {
-                case .iterator:
-                return .generator(args: newArgs, stmts: funCtx.statements)
-                case .fun:
-                return .closure(args: newArgs, stmts: funCtx.statements)
-            } 
+            case .iterator:
+                f = .generator(args: newArgs, stmts: funCtx.statements)
+            case .fun:
+                f = .closure(args: newArgs, stmts: funCtx.statements)
+            }
+
+            if !traitBounds.isEmpty {
+                return .closure(args: dictArgs, stmts: [.return_(f)])
+            } else {
+                return f
+            }
         case let .Call(f, args, _):
             return .call(lhs: try f.codegen(ctx), args: try args.map({ try $0.codegen(ctx) }))
         case let .Block(stmts, ret, _):
@@ -182,7 +249,7 @@ extension CoreExpr {
                 env: ctx.env
             )
             
-            if case .Var(_, _) = expr {
+            if case .Var(_, _, _) = expr {
                 return try dt.rewrite(
                     subject: expr,
                     returnTy: ty,
@@ -256,9 +323,14 @@ extension CoreExpr {
             }
         case let .MethodCall(subject, method, args, _):
             let trait = ctx.traitMethods[method]!
-            let dict = ctx.traitImpls[trait]!.first(where: { ctx.env.unifyPure($0.ty, subject.ty) != nil })!
+            let dict = ctx.resolveTraitDict(trait: trait, ty: subject.ty)
+
+            if dict == nil {
+                throw TypeError.noTraitImplForType(trait: trait, ty: ty)
+            }
+
             return .call(
-                lhs: .objectAccess(.variable(dict.dict), field: method),
+                lhs: .objectAccess(.variable(dict!), field: method),
                 args: [try subject.codegen(ctx)] + (try args.map({ try $0.codegen(ctx) }))
             )
         case let .BuiltInCall(name, args, _):

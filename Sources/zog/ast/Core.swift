@@ -12,7 +12,7 @@ indirect enum CoreExpr {
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
     case Parens(CoreExpr, ty: Ty)
-    case Var(String, ty: Ty)
+    case Var(String, traitBounds: Ref<[String:[Ty]]> = Ref([:]), ty: Ty)
     case Fun(modifier: FunModifier, args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
@@ -36,7 +36,7 @@ indirect enum CoreExpr {
         case .UnaryOp(_, _, let ty): return ty
         case .BinaryOp(_, _, _, let ty): return ty
         case .Parens(_, let ty): return ty
-        case .Var(_, let ty): return ty
+        case .Var(_, _, let ty): return ty
         case .Fun(_, _, _, _, let ty): return ty
         case .Call(_, _, let ty): return ty
         case .Block(_, _, let ty): return ty

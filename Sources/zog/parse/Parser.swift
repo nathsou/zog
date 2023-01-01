@@ -494,7 +494,8 @@ class Parser {
             modifier: FunModifier,
             name: String,
             args: [(Pattern, Ty?)],
-            ret: Ty?, body: Expr
+            ret: Ty?,
+            body: Expr
         )]()
 
         try consume(.symbol(.lcurlybracket))

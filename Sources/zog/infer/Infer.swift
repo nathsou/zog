@@ -45,9 +45,10 @@ extension CoreExpr {
         switch self {
         case let .Literal(lit, _):
             tau = lit.ty
-        case let .Var(name, _):
+        case let .Var(name, traitBounds, _):
             if let info = ctx.env.lookup(name) {
                 tau = try info.ty.instantiate(level: level, env: ctx.env)
+                traitBounds.ref = tau.traitBounds()
             } else {
                 throw TypeError.unknownVariable(name)
             }
@@ -87,7 +88,7 @@ extension CoreExpr {
                 try ctx.env.unify(retTy, actualRetTy)
             }
             TypeEnv.popFunctionInfo()
-           
+
             tau = .fun(argTys, actualRetTy)
         case let .Call(f, args, retTy):
             let argsTy = try args.map({ arg in try arg.infer(ctx, level) })
