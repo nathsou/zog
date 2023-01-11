@@ -7,12 +7,26 @@
 
 import Foundation
 
+// Type class placeholders
+// see https://www.researchgate.net/publication/2683816_Implementing_Type_Classes
+enum Placeholder: CustomStringConvertible {
+    case Trait(trait: String, ty: Ty)
+    case Method(trait: String, method: String, ty: Ty)
+
+    var description: String {
+        switch self {
+        case let .Trait(trait, ty): return "<\(trait), \(ty)>"
+        case let .Method(trait, method, ty): return "<\(trait).\(method), \(ty)>"
+        }
+    }
+}
+
 indirect enum CoreExpr {
     case Literal(Literal, ty: Ty)
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
     case Parens(CoreExpr, ty: Ty)
-    case Var(String, traitBounds: Ref<[String:[Ty]]> = Ref([:]), ty: Ty)
+    case Var(String, placeholders: Ref<[Placeholder]> = Ref([]), ty: Ty)
     case Fun(modifier: FunModifier, args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
@@ -27,7 +41,7 @@ indirect enum CoreExpr {
     case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
     case Variant(enumName: Ref<String?>, variantName: String, val: CoreExpr?, ty: Ty)
-    case MethodCall(subject: CoreExpr, method: String, args: [CoreExpr], ty: Ty)
+    case MethodCall(subject: CoreExpr, method: String, args: [CoreExpr], placeholder: Ref<Placeholder?> = Ref(nil), ty: Ty)
     case BuiltInCall(String, [CoreExpr], ty: Ty)
     
     public var ty: Ty {
@@ -51,7 +65,7 @@ indirect enum CoreExpr {
         case .Match(_, _, let ty): return ty
         case .Switch(_, _, _, let ty): return ty
         case .Variant(_, _, _, let ty): return ty
-        case .MethodCall(_, _, _, let ty): return ty
+        case .MethodCall(_, _, _, _, let ty): return ty
         case .BuiltInCall(_, _, let ty): return ty
         }
     }
@@ -209,7 +223,8 @@ enum CoreDecl {
     case Trait(
         pub: Bool,
         name: String,
-        methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]
+        subjectTy: Ty,
+        methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty, ty: Ty)]
     )
     case TraitImpl(
         trait: String,
@@ -266,17 +281,38 @@ extension Decl {
 
             return .Import(path: path, members: members)
         case let .Trait(pub, name, members):
+            let subjectTy = Ty.fresh(level: lvl + 1) 
+            let replaceSelf = { (ty: Ty) in ty.rewrite({ t in
+                if case .const("Self", []) = t {
+                    return subjectTy
+                } else {
+                    return t
+                }
+            })}
+        
             return .Trait(
                 pub: pub,
                 name: name,
+                subjectTy: subjectTy, 
                 methods: members.map({ (modifier, name, args, retTy) in
-                    (modifier: modifier, name: name, args: args, ret: retTy)
+                    let newArgs = args.map({ (pat, ty) in (pat, replaceSelf(ty)) })
+                    let newRetTy = replaceSelf(retTy)
+                    let funTy = Ty.fun(newArgs.map({ $0.1 }), newRetTy).generalize(level: lvl)
+
+                    return (
+                        modifier: modifier,
+                        name: name,
+                        args: newArgs,
+                        ret: newRetTy,
+                        ty: funTy
+                    )
                 })
             )
         case let .TraitImpl(trait, ty, methods):
+            let genTy = ty.generalize(level: lvl)
             return .TraitImpl(
                 trait: trait,
-                ty: ty,
+                ty: genTy,
                 methods: methods.map({ (pub, modifier, name, args, retTy, body) in
                     (
                         pub: pub,
@@ -284,7 +320,7 @@ extension Decl {
                         name: name,
                         args: args.map({ (pat, ty) in (pat.core(), ty) }),
                         retTy: retTy,
-                        body: body.core(ctx, lvl + 1),
+                        body: body.core(ctx, lvl),
                         ty: Ty.fresh(level: lvl)
                     )
                 })

@@ -1,3 +1,5 @@
+import "../std/array.zog" { map }
+import "../std/string.zog" { join }
 
 declare console: { log: _ => () }
 
@@ -19,20 +21,16 @@ impl Show for str {
     }
 }
 
+impl Show for a[] {
+    fun show(elems: a[]) {
+        "[" ++ elems->map(x => x.show())->join(", ") ++ "]"
+    }
+}
+
 fun print(x) {
     (console.log)(x.show())
 }
 
-fun id(x) {
-    x
-}
-
-let _ = (id(1), id(true))
-
-print(17)
-
-// impl Show for a[] where a: Show {
-//    fun show(elems) {
-//        "[" ++ elems->map(show)->join(", ") ++ "]"
-//    }
-// }
+print(7)
+print("Hello")
+// print([1, 2, 3])

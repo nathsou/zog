@@ -57,7 +57,7 @@ class TypeEnv: CustomStringConvertible {
     typealias AliasInfo = (args: [TyVarId], ty: Ty, pub: Bool)
     typealias EnumInfo = (args: [TyVarId], variants: EnumVariants, pub: Bool)
     typealias RewritingRuleInfo = (args: [String], rhs: Expr, pub: Bool)
-    typealias TraitInfo = (methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool)
+    typealias TraitInfo = (subjectTy: Ty, methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool)
     typealias TraitImplInfo = (implementee: Ty, context: [TyVarId:TyVar.Context])
     
     let parent: TypeEnv?
@@ -112,7 +112,7 @@ class TypeEnv: CustomStringConvertible {
     func lookupAlias(name: String, args: [Ty]) throws -> Ty {
         if let alias = aliases[name] {
             let subst = Dictionary(uniqueKeysWithValues: zip(alias.args, args))
-            return try alias.ty.substitute(subst).instantiate(level: 0, env: self)
+            return try alias.ty.substitute(subst).instantiate(level: 0, env: self).ty
         }
         
         if let parent {
@@ -160,8 +160,8 @@ class TypeEnv: CustomStringConvertible {
         return rewritingRules.keys.contains(name)
     }
 
-    func declareTrait(name: String, methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool) {
-        traits[name] = (methods, pub)
+    func declareTrait(name: String, subjectTy: Ty, methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool) {
+        traits[name] = (subjectTy, methods, pub)
 
         for method in methods.keys {
             if traitMethods[method] == nil {
@@ -376,14 +376,14 @@ indirect enum Ty: Equatable, CustomStringConvertible {
     }
     
     public var description: String {
-        return show(canonical: false)
+        return show(canonical: false, traits: true)
     }
     
     public var canonical: String {
-        return show(canonical: true)
+        return show(canonical: true, traits: true)
     }
     
-    public func show(canonical: Bool) -> String {
+    public func show(canonical: Bool, traits: Bool) -> String {
         var generics = Set<TyVarId>()
         var tyVarNames = [TyVarId:String]()
         var tyVarTraits = [TyVarId:Set<String>]()
@@ -468,9 +468,8 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         }
 
         let rhs = go(self)
-
         
-        if !tyVarTraits.isEmpty {        
+        if traits && !tyVarTraits.isEmpty {        
             let contextFmt = tyVarTraits.map({ (id, traits) in 
                 var name = canonicalized(id)
                 if generics.contains(id) {
@@ -598,6 +597,15 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         return bounds
     }
     
+    func asVariable() -> TyVar? {
+        switch self {
+        case let .variable(v):
+            return v.ref
+        default:
+            return nil
+        }
+    }
+    
     func tyVarId() -> TyVarId? {
         switch self {
         case let .variable(v):
@@ -612,6 +620,28 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         default:
             return nil
         }
+    }
+    
+    func rewrite(_ f: (Ty) -> Ty) -> Ty {
+        func go(_ ty: Ty) -> Ty {
+            switch ty {
+            case let .variable(v):
+                switch v.ref {
+                case let .link(t):
+                    return go(t)
+                case .unbound(_, _, _), .generic(_, _):
+                    return f(ty)
+                }
+            case let .const(name, args):
+                return f(.const(name, args.map(go)))
+            case let .fun(args, ret):
+                return f(.fun(args.map(go), go(ret)))
+            case let .record(row):
+                return f(.record(row.map(types: go)))
+            }
+        }
+        
+        return go(self)
     }
     
     static func == (s: Ty, t: Ty) -> Bool {
@@ -635,7 +665,7 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
                     v.ref = .unbound(id: otherId, level: level, context: traits)
                 }
             case .generic(_, _):
-                fatalError("generic ty")
+                fatalError("generic type")
          }
         case let .const(_, args):
             for arg in args {
@@ -708,7 +738,7 @@ extension TypeEnv {
                         }
                         
                         try occursCheckAdjustLevels(id: id, level: lvl, ty: ty)
-                        try propagateTraits(traits: traits.ref, ty: ty) 
+                        try propagateTraits(traits: traits.ref, ty: ty, level: lvl) 
 
                         v.linkTo(ty, subst)
                     case let .link(to):
@@ -797,10 +827,15 @@ extension TypeEnv {
     // propagateTraitTyContext(trait: Show, ty: num)
     // findTraitImplContext(trait: Show, ty: num)
 
-    func findTraitImplContext(trait: String, ty: Ty) -> [TyVar.Context]? {
+    func findTraitImplContext(trait: String, ty: Ty, level: UInt) throws -> [TyVar.Context]? {
+        print("findTraitImplContext(\(trait), \(ty))")
         if let impls = traitImpls[trait] {
             for (implementee, context) in impls {
-                if unifyPure(implementee, ty) != nil {
+                let inst = try implementee.instantiate(level: level, env: self)
+                let inst2 = try ty.instantiate(level: level, env: self)
+                let subst = unifyPure(inst.ty, inst2.ty)
+                if subst != nil {
+                    print("found impl: \(subst!.ref)\n")
                     return ty.subTypes().map({ subTy in
                         let subTyVars = subTy.unboundVars()
                         let subTyTraits = context
@@ -817,7 +852,7 @@ extension TypeEnv {
         return nil
     }
 
-    func propagateTraits(traits: TyVar.Context, ty: Ty) throws {
+    func propagateTraits(traits: TyVar.Context, ty: Ty, level: UInt) throws {
         if case let .variable(v) = ty.deref(), case let .unbound(_, _, context) = v.ref {
             for trait in traits {
                 if !context.ref.contains(trait) {
@@ -826,15 +861,15 @@ extension TypeEnv {
             }
         } else {
             for trait in traits { 
-                try propagateTraitTyContext(trait: trait, ty: ty)
+                try propagateTraitTyContext(trait: trait, ty: ty, level: level)
             }
         }
     }
 
-    func propagateTraitTyContext(trait: String, ty: Ty) throws {
-        if let s = findTraitImplContext(trait: trait, ty: ty) {
+    func propagateTraitTyContext(trait: String, ty: Ty, level: UInt) throws {
+        if let s = try findTraitImplContext(trait: trait, ty: ty, level: level) {
             for (k, subTy) in zip(s, ty.subTypes()) {
-                try propagateTraits(traits: k, ty: subTy)
+                try propagateTraits(traits: k, ty: subTy, level: level)
             }
         } else {
             throw TypeError.noTraitImplForType(trait: trait, ty: ty)
@@ -874,8 +909,8 @@ extension Ty {
         }
     }
     
-    func instantiate(level: UInt, env: TypeEnv) throws -> Ty {
-        var idVarMap = [TyVarId:Ty]()
+    func instantiate(level: UInt, env: TypeEnv) throws -> (ty: Ty, subst: [TyVarId:Ty]) {
+        var subst = [TyVarId:Ty]()
         
         func go(_ ty: Ty) throws -> Ty {
             switch ty {
@@ -886,16 +921,16 @@ extension Ty {
                 case let .link(to):
                     return try go(to)
                 case let .unbound(_, _, traits):
-                    try env.propagateTraits(traits: traits.ref, ty: ty)
+                    try env.propagateTraits(traits: traits.ref, ty: ty, level: level)
                     return ty
                 case let .generic(id, traits):
-                    if let inst = idVarMap[id] {
-                        try env.propagateTraits(traits: traits.ref, ty: inst)
+                    if let inst = subst[id] {
+                        try env.propagateTraits(traits: traits.ref, ty: inst, level: level)
                         return inst
                     } else {
                         let inst = Ty.fresh(level: level)
-                        try env.propagateTraits(traits: traits.ref, ty: inst)
-                        idVarMap[id] = inst
+                        try env.propagateTraits(traits: traits.ref, ty: inst, level: level)
+                        subst[id] = inst
                         return inst
                     }
                 }
@@ -906,6 +941,6 @@ extension Ty {
             }
         }
         
-        return try go(self)
+        return (try go(self), subst)
     }
 }

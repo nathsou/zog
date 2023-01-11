@@ -368,8 +368,41 @@ class Parser {
         return .Enum(pub: pub, name: name, args: args, variants: variants)
     }
     
-    // funDecl -> 'pub'? ('fun' | 'iterator') identifier '(' commas(pattern) ')' (':' ty)? { stmt* expr? }
+    // traitBounds -> 'where' commas(tyParam ':' upperIdentifier)
+    func traitBounds() throws -> [(TyVarId, String)] {
+        var bounds = [(TyVarId, String)]()
+        
+        if match(.identifier("where")) {
+            repeat {
+                let param = try lowerIdentifier()
+                let ty = lookupTyParam(param)
+                assert(ty != nil, "unknown type parameter '\(param)'")
+                try consume(.symbol(.colon))
+                let trait = try upperIdentifier()
+
+                if let v = ty?.asVariable() {
+                    switch v {
+                        case let .unbound(_, _, traits):
+                            if !traits.ref.contains(trait) {
+                                traits.ref.append(trait)
+                            }
+                        default:
+                            break
+                    }
+                }
+
+                bounds.append((ty!.tyVarId()!, trait))
+            } while match(.symbol(.comma))
+        }
+        
+        return bounds
+    }
+
+    // funDecl -> 'pub'? ('fun' | 'iterator') identifier '(' commas(pattern) ')' (':' ty)? traitBounds? { stmt* expr? }
     func funDecl(pub: Bool, modifier: FunModifier) throws -> Decl {
+        generalizationLevel += 1
+        defer { generalizationLevel -= 1 }
+
         let name = try identifier()
         try consume(.symbol(.lparen))
         var args = [(Pattern, Ty?)]() 
@@ -381,11 +414,10 @@ class Parser {
             } while match(.symbol(.comma))
         }
         try consume(.symbol(.rparen))
-        generalizationLevel += 1
         let retTy = try typeAnnotation()
+        let _ = try traitBounds()
         try consume(.symbol(.lcurlybracket))
         let body = try block()
-        generalizationLevel -= 1
         try consume(.symbol(.semicolon))
         
         return .Fun(pub: pub, modifier: modifier, name: name, args: args, retTy: retTy, body: body)
@@ -460,6 +492,9 @@ class Parser {
     
     // traitDecl -> 'pub'? 'trait' upperIdentifier '{' decl* '}'
     func traitDecl(pub: Bool) throws -> Decl {
+        generalizationLevel += 1
+        defer { generalizationLevel -= 1 }
+
         let name = try upperIdentifier()
         var methods = [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]() 
         try consume(.symbol(.lcurlybracket))
@@ -483,11 +518,15 @@ class Parser {
         return .Trait(pub: pub, name: name, methods: methods)
     }
 
-    // traitImplDecl -> 'impl' upperIdentifier 'for' ty '{' decl* '}'
+    // traitImplDecl -> 'impl' upperIdentifier 'for' ty traitBounds? '{' decl* '}'
     func traitImplDecl() throws -> Decl {
+        generalizationLevel += 1
+        defer { generalizationLevel -= 1 }
+        
         let name = try upperIdentifier()
         try consume(.keyword(.For))
         let ty = try type()
+        let _ = try traitBounds()
 
         var methods = [(
             pub: Bool,
