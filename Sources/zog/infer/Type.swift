@@ -570,8 +570,10 @@ indirect enum Ty: Equatable, CustomStringConvertible {
         return vars
     }
 
-    func traitBounds() -> [String:[Ty]] {
-        var bounds = [String:[Ty]]()
+    typealias TraitBounds = [String:[Ty]]
+
+    func traitBounds() -> TraitBounds {
+        var bounds = TraitBounds()
 
         func go(_ ty: Ty) {
             switch ty {
@@ -685,6 +687,18 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
     }
     
     try go(ty)
+}
+
+extension Ty.TraitBounds {
+    func merging(_ other: Ty.TraitBounds) -> Ty.TraitBounds {
+        var bounds = self
+
+        for (trait, tys) in other {
+            bounds[trait, default: []].append(contentsOf: tys)
+        }
+
+        return bounds
+    }
 }
 
 let primitiveTypes = Set(["num", "str", "bool", "unit", "Tuple", "Array", "Map", "Iterator"])
@@ -828,14 +842,12 @@ extension TypeEnv {
     // findTraitImplContext(trait: Show, ty: num)
 
     func findTraitImplContext(trait: String, ty: Ty, level: UInt) throws -> [TyVar.Context]? {
-        print("findTraitImplContext(\(trait), \(ty))")
         if let impls = traitImpls[trait] {
             for (implementee, context) in impls {
                 let inst = try implementee.instantiate(level: level, env: self)
                 let inst2 = try ty.instantiate(level: level, env: self)
                 let subst = unifyPure(inst.ty, inst2.ty)
                 if subst != nil {
-                    print("found impl: \(subst!.ref)\n")
                     return ty.subTypes().map({ subTy in
                         let subTyVars = subTy.unboundVars()
                         let subTyTraits = context

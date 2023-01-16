@@ -310,8 +310,8 @@ extension CoreExpr {
                     .instantiate(level: level, env: ctx.env)
                 let methodCtx = ctx.child()
                 let funTy = Ty.fun([subjectTy] + args.map({ $0.ty }), ty)
-                placeholder.ref = .Method(trait: trait, method: method, ty: selfTy)
                 try methodCtx.env.unify(methodInst.ty, funTy)
+                placeholder.ref = .Method(trait: trait, method: method, subjectTy: selfTy)
             default:
                 // should be handled when type checking impl blocks
                 // i.e overlapping method implementations for a given type are not allowed
@@ -526,7 +526,7 @@ extension CoreDecl {
                 })),
                 pub: pub
             )
-        case let .TraitImpl(trait, ty, methods):
+        case let .TraitImpl(trait, ty, bounds, methods):
             if let traitInfo = ctx.env.lookupTrait(trait) {
                 let expectedMethods = Set(traitInfo.methods.keys)
                 let implMethods = Set(methods.map({ $0.name }))
@@ -543,6 +543,7 @@ extension CoreDecl {
                 }
 
                 let implCtx = ctx.child()
+                var traitBounds = Ty.TraitBounds()
 
                 for (name, method) in traitInfo.methods {
                     let expectedTy = try method.ty.instantiate(level: level, env: ctx.env).ty
@@ -559,6 +560,7 @@ extension CoreDecl {
 
                     do {
                         try implCtx.env.unify(expectedTy, implTy)
+                        traitBounds = traitBounds.merging(implTy.traitBounds())
                     } catch {
                         throw TypeError.invalidTraitImplMethodSignature(
                             trait: trait,
@@ -568,6 +570,7 @@ extension CoreDecl {
                     }
                 }
 
+                bounds.ref = traitBounds
                 ctx.env.declareTraitImpl(trait: trait, implementee: ty, context: [:])
             } else {
                 throw TypeError.unknownTrait(trait)

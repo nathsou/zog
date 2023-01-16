@@ -87,7 +87,20 @@ class CoreContext {
         }
     }
 
-    func resolveTraitDict(trait: String, ty: Ty) -> String? {
+    func declareTraitDict(trait: String, id: TyVarId) -> String? {
+        let dictName = "$dict_\(trait)_\(TyVar.showId(id))"
+
+        do {
+            let _ = try lookup(dictName)
+            return nil
+        } catch {
+            let dict = declare(dictName)
+            traitDicts[TraitDict(trait: trait, id: id)] = dict
+            return dict
+        }
+    }
+
+    func resolveTraitDict(trait: String, ty: Ty) throws -> String? {
         // if this is a type variable, we need to look up the dictionary
         if let id = ty.tyVarId() {
             if let dict = traitDicts[TraitDict(trait: trait, id: id)] {
@@ -98,29 +111,33 @@ class CoreContext {
         // otherwise, we need to look up the dictionary in the trait impls
         if let impls = traitImpls[trait] {
             for impl in impls {
-                if env.unifyPure(impl.ty, ty) != nil {
+                let instTy = try impl.ty.instantiate(level: 0, env: self.env).ty
+                let res = env.unifyPure(instTy, ty)
+                if res != nil {
                     return impl.dict
                 }
             }
         }
 
         if let parent {
-            return parent.resolveTraitDict(trait: trait, ty: ty)
+            return try parent.resolveTraitDict(trait: trait, ty: ty)
         } else {
             return nil
         }
     }
 
-    func resolveDictPlaceholder(_ placeholder: Placeholder) -> JSExpr? {
+    func resolveDictPlaceholder(_ placeholder: Placeholder) throws -> JSExpr? {
         switch placeholder {
             case let .Trait(trait, ty):
-                let dict = resolveTraitDict(trait: trait, ty: ty)
+                let dict = try resolveTraitDict(trait: trait, ty: ty)
                 print("trait \(trait) \(ty) -> \(dict ?? "nil")")
                 guard let dict = dict else { return nil }
                 return .variable(dict)
-            case let .Method(trait, method, ty):
-                let dict = resolveTraitDict(trait: trait, ty: ty)!
-                return .objectAccess(.variable(dict), field: method)
+            case let .Method(trait, method, subjectTy):
+                print("resolve method \(trait) \(method) \(subjectTy)")
+                
+                let dict = try resolveTraitDict(trait: trait, ty: subjectTy)!
+                return JSExpr.objectAccess(.variable(dict), field: method)
         }
     }
 
@@ -144,12 +161,6 @@ extension Literal {
     }
 }
 
-extension Placeholder {
-    func resolve() {
-
-    }
-}
-
 extension CoreExpr {
     func codegen(_ ctx: CoreContext) throws -> JSExpr {
         switch self {
@@ -160,23 +171,9 @@ extension CoreExpr {
         case let .Parens(expr, _): return .parens(try expr.codegen(ctx))
         case let .Var(name, placeholders, ty):
             if !placeholders.ref.isEmpty {
-                print("var \(name) \(placeholders.ref), ty: \(ty)")
-                let dicts = placeholders.ref.compactMap({ ctx.resolveDictPlaceholder($0) })
+                let dicts = try placeholders.ref.compactMap({ try ctx.resolveDictPlaceholder($0) })
                 return .call(lhs: .variable(try ctx.lookup(name)), args: dicts)
             }
-            // if !traitBounds.ref.isEmpty {
-            //     let dicts = traitBounds.ref.flatMap({ (trait, tys) in
-            //         tys.map({ ty in
-            //             if let dict = ctx.resolveTraitDict(trait: trait, ty: ty) {
-            //                 return JSExpr.variable(dict)
-            //             } else {
-            //                 return nil
-            //             }
-            //         })
-            //     }).compactMap({ $0 })
-
-            //     return .call(lhs: .variable(try ctx.lookup(name)), args: dicts)
-            // }
 
             return .variable(try ctx.lookup(name))
         case let .Fun(modifier, args, _, body, funTy):
@@ -188,9 +185,9 @@ extension CoreExpr {
             traitBounds.forEach({ (trait, tys) in
                 tys.forEach({ ty in
                     if let id = ty.tyVarId() {
-                        let dictName = "$dict_\(trait)_\(TyVar.showId(id))"
-                        funCtx.traitDicts[TraitDict(trait: trait, id: id)] = dictName
-                        dictArgs.append(JSExpr.variable(dictName))
+                        if let dictName = funCtx.declareTraitDict(trait: trait, id: id) {
+                            dictArgs.append(JSExpr.variable(dictName))
+                        }
                     }
                 })
             })
@@ -213,7 +210,7 @@ extension CoreExpr {
                 f = .closure(args: newArgs, stmts: funCtx.statements)
             }
 
-            if !traitBounds.isEmpty {
+            if !dictArgs.isEmpty {
                 return .closure(args: dictArgs, stmts: [.return_(f)])
             } else {
                 return f
@@ -346,11 +343,7 @@ extension CoreExpr {
                 return tag
             }
         case let .MethodCall(subject, method, args, placeholder, ty):
-            if let placeholder = placeholder.ref {
-                print("method \(placeholder), ty: \(ty)")
-            }
-
-            let dict = ctx.resolveDictPlaceholder(placeholder.ref!)
+            let dict = try ctx.resolveDictPlaceholder(placeholder.ref!)
 
             if dict == nil {
                 let trait = ctx.env.traitMethods[method]!.first!
@@ -483,8 +476,10 @@ extension CoreDecl {
             }
 
             return []
-        case let .TraitImpl(trait, ty, methods):
+        case let .TraitImpl(trait, ty, bounds, methods):
             let dictName = "$impl_\(trait)_\(ctx.traitImpls[trait]?.count ?? 0)"
+
+            print("impl \(trait) for \(ty) with dict \(dictName) bounds: \(bounds.ref)")
 
             if ctx.traitImpls.keys.contains(trait) {
                 ctx.traitImpls[trait]!.append((ty, dictName))
@@ -492,19 +487,36 @@ extension CoreDecl {
                 ctx.traitImpls[trait] = [(ty, dictName)]
             }
 
-            let dict = JSExpr.object(
-                try methods.map({ (pub, modifier, name, args, retTy, body, methodTy) in
-                    let funcExpr = CoreExpr.Fun(
-                        modifier: modifier,
-                        args: args,
-                        retTy: retTy,
-                        body: body,
-                        ty: methodTy
-                    )
+        var dictArgs = [JSExpr]()
 
-                    return (name, try funcExpr.codegen(ctx))
-                })
-            )
+        bounds.ref.forEach({ (trait, tys) in
+            tys.forEach({ ty in
+                if let id = ty.tyVarId() {
+                    if let dictName = ctx.declareTraitDict(trait: trait, id: id) {
+                        dictArgs.append(JSExpr.variable(dictName))
+                    }
+                }
+            })
+        })
+
+
+        var dict = JSExpr.object(
+            try methods.map({ (pub, modifier, name, args, retTy, body, methodTy) in
+                let funcExpr = CoreExpr.Fun(
+                    modifier: modifier,
+                    args: args,
+                    retTy: retTy,
+                    body: body,
+                    ty: methodTy
+                )
+
+                return (name, try funcExpr.codegen(ctx))
+            })
+        )
+
+        if !dictArgs.isEmpty {
+            dict = .closure(args: dictArgs, stmts: [.return_(dict)])
+        }
 
         return [
             .varDecl(export: false, const: true, .variable(dictName), dict)

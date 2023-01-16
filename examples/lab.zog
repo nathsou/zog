@@ -3,34 +3,28 @@ import "../std/string.zog" { join }
 
 declare console: { log: _ => () }
 
-let showNum: num => str = raw { n => String(n) }
-
 trait Show {
-    fun show(self: Self): str
+    fun show(x: Self): str
 }
 
+impl Show for (a, b) {
+    fun show((x, y) : (a, b)): str {
+        "(" ++ x.show() ++ ", " ++ y.show() ++ ")"
+    }
+}
+
+let showNum: num => str = raw { n => String(n) }
+
 impl Show for num {
-    fun show(n) {
-        showNum(n) 
+    fun show(n: num): str {
+        showNum(n)
     }
 }
 
 impl Show for str {
-    fun show(s) {
-        s 
+    fun show(s: str): str {
+        s
     }
 }
 
-impl Show for a[] {
-    fun show(elems: a[]) {
-        "[" ++ elems->map(x => x.show())->join(", ") ++ "]"
-    }
-}
-
-fun print(x) {
-    (console.log)(x.show())
-}
-
-print(7)
-print("Hello")
-// print([1, 2, 3])
+(console.log)((23, "yo").show())

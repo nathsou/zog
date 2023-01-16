@@ -11,12 +11,12 @@ import Foundation
 // see https://www.researchgate.net/publication/2683816_Implementing_Type_Classes
 enum Placeholder: CustomStringConvertible {
     case Trait(trait: String, ty: Ty)
-    case Method(trait: String, method: String, ty: Ty)
+    case Method(trait: String, method: String, subjectTy: Ty)
 
     var description: String {
         switch self {
         case let .Trait(trait, ty): return "<\(trait), \(ty)>"
-        case let .Method(trait, method, ty): return "<\(trait).\(method), \(ty)>"
+        case let .Method(trait, method, subjectTy): return "<\(trait).\(method), \(subjectTy)>"
         }
     }
 }
@@ -229,6 +229,7 @@ enum CoreDecl {
     case TraitImpl(
         trait: String,
         ty: Ty,
+        bounds: Ref<Ty.TraitBounds> = Ref([:]),
         methods: [(
             pub: Bool,
             modifier: FunModifier,
