@@ -81,11 +81,11 @@ extension CoreExpr {
                 }
             }
             
-            let innerRetTy = retTyAnn ?? .fresh(level: level)
+            let innerRetTy = retTyAnn ?? .fresh(level: level + 1)
             let isIterator = modifier == .iterator
             let retTy = isIterator ? Ty.iterator(innerRetTy) : innerRetTy
             TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
-            var actualRetTy = try body.infer(bodyCtx, level, expectedTy: retTyAnn)
+            var actualRetTy = try body.infer(bodyCtx, level + 1, expectedTy: retTyAnn)
             if isIterator {
                 actualRetTy = .iterator(.fresh(level: level + 1))
                 try ctx.env.unify(retTy, actualRetTy)
@@ -93,7 +93,7 @@ extension CoreExpr {
                 try ctx.env.unify(retTy, actualRetTy)
             }
             TypeEnv.popFunctionInfo()
-
+            
             tau = .fun(argTys, actualRetTy)
         case let .Call(f, args, retTy):
             let argsTy = try args.map({ arg in try arg.infer(ctx, level) })
@@ -370,7 +370,6 @@ func inferLet(
     }
     
     let valTy = try value.infer(rhsCtx, level + 1, expectedTy: annotation)
-    
     try ctx.env.unify(patternTy, valTy)
     
     for (name, ty) in patternVars {
@@ -517,64 +516,6 @@ extension CoreDecl {
             } else {
                 fatalError("Could not resolve module \(path)")
             } 
-        case let .Trait(pub, name, subjectTy, methods):
-            ctx.env.declareTrait(
-                name: name,
-                subjectTy: subjectTy,
-                methods: Dictionary(uniqueKeysWithValues: methods.map({ (_, name, args, ret, ty) in
-                    (name, (ty: ty, isStatic: false))
-                })),
-                pub: pub
-            )
-        case let .TraitImpl(trait, ty, bounds, methods):
-            if let traitInfo = ctx.env.lookupTrait(trait) {
-                let expectedMethods = Set(traitInfo.methods.keys)
-                let implMethods = Set(methods.map({ $0.name }))
-
-                let missingMethods = expectedMethods.subtracting(implMethods)
-                let extraneousMethods = implMethods.subtracting(expectedMethods)
-
-                if !missingMethods.isEmpty {
-                    throw TypeError.missingTraitImplMethods(trait: trait, methods: Array(missingMethods))
-                }
-
-                if !extraneousMethods.isEmpty {
-                    throw TypeError.extraneousTraitImplMethods(trait: trait, methods: Array(extraneousMethods))
-                }
-
-                let implCtx = ctx.child()
-                var traitBounds = Ty.TraitBounds()
-
-                for (name, method) in traitInfo.methods {
-                    let expectedTy = try method.ty.instantiate(level: level, env: ctx.env).ty
-                    let implMethod = methods.first(where: { $0.name == name })!
-                    let _ = try CoreExpr.Fun(
-                        modifier: .fun,
-                        args: implMethod.args,
-                        retTy: implMethod.retTy,
-                        body: implMethod.body,
-                        ty: implMethod.ty
-                    ).infer(implCtx, level)
-
-                    let implTy = try implMethod.ty.instantiate(level: level, env: ctx.env).ty
-
-                    do {
-                        try implCtx.env.unify(expectedTy, implTy)
-                        traitBounds = traitBounds.merging(implTy.traitBounds())
-                    } catch {
-                        throw TypeError.invalidTraitImplMethodSignature(
-                            trait: trait,
-                            method: name,
-                            error: error 
-                        )
-                    }
-                }
-
-                bounds.ref = traitBounds
-                ctx.env.declareTraitImpl(trait: trait, implementee: ty, context: [:])
-            } else {
-                throw TypeError.unknownTrait(trait)
-            }
         case .Error(_, _):
             break
         }

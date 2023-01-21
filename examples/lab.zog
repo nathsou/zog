@@ -7,24 +7,33 @@ trait Show {
     fun show(x: Self): str
 }
 
-impl Show for (a, b) {
-    fun show((x, y) : (a, b)): str {
-        "(" ++ x.show() ++ ", " ++ y.show() ++ ")"
-    }
-}
-
 let showNum: num => str = raw { n => String(n) }
 
 impl Show for num {
-    fun show(n: num): str {
+    fun show(n)  {
         showNum(n)
     }
 }
 
 impl Show for str {
-    fun show(s: str): str {
+    fun show(s) {
         s
     }
 }
 
+impl Show for (a, b) {
+    fun show((x, y)) {
+        "(" ++ x.show() ++ ", " ++ y.show() ++ ")"
+    }
+}
+
+impl Show for a[] {
+    fun show(xs) {
+        "[" ++ xs->map(x => x.show())->join(", ") ++ "]"
+    }
+}
+
 (console.log)((23, "yo").show())
+(console.log)(("yo", 23).show())
+(console.log)([2, 3, 5, 7, 11, 13, 17, 19, 23, 27].show())
+(console.log)(["a", "b", "c"].show())

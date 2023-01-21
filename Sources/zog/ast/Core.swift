@@ -220,26 +220,6 @@ enum CoreDecl {
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     case Declare(pub: Bool, name: String, ty: Ty)
     case Import(path: String, members: [String]?)
-    case Trait(
-        pub: Bool,
-        name: String,
-        subjectTy: Ty,
-        methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty, ty: Ty)]
-    )
-    case TraitImpl(
-        trait: String,
-        ty: Ty,
-        bounds: Ref<Ty.TraitBounds> = Ref([:]),
-        methods: [(
-            pub: Bool,
-            modifier: FunModifier,
-            name: String,
-            args: [(CorePattern, Ty?)],
-            retTy: Ty?,
-            body: CoreExpr,
-            ty: Ty
-        )]
-    )
     case Error(ParserError, span: (Int, Int))
 }
 
@@ -282,7 +262,8 @@ extension Decl {
 
             return .Import(path: path, members: members)
         case let .Trait(pub, name, members):
-            let subjectTy = Ty.fresh(level: lvl + 1) 
+            let subjectTyVarId = TyContext.nextTyVarId
+            let subjectTy = Ty.variable(Ref(TyVar.unbound(id: subjectTyVarId, level: lvl + 1)))
             let replaceSelf = { (ty: Ty) in ty.rewrite({ t in
                 if case .const("Self", []) = t {
                     return subjectTy
@@ -290,42 +271,52 @@ extension Decl {
                     return t
                 }
             })}
-        
-            return .Trait(
-                pub: pub,
-                name: name,
-                subjectTy: subjectTy, 
-                methods: members.map({ (modifier, name, args, retTy) in
-                    let newArgs = args.map({ (pat, ty) in (pat, replaceSelf(ty)) })
-                    let newRetTy = replaceSelf(retTy)
-                    let funTy = Ty.fun(newArgs.map({ $0.1 }), newRetTy).generalize(level: lvl)
 
-                    return (
-                        modifier: modifier,
-                        name: name,
-                        args: newArgs,
-                        ret: newRetTy,
-                        ty: funTy
-                    )
+            let traitTy = replaceSelf(Ty.record(Row.from(
+                entries: members.map({ method in
+                    (method.name, replaceSelf(.fun(method.args.map({ $0.1 }), method.ret)))
                 })
+            )))
+
+            let ta = CoreDecl.TypeAlias(pub: pub, name: name, args: [subjectTyVarId], ty: traitTy)
+            ctx.env.declareTrait(
+                name: name,
+                subjectTy: subjectTy,
+                methods: Dictionary(uniqueKeysWithValues: members.map({ method in
+                    let ty = replaceSelf(.fun(method.args.map({ $0.1 }), method.ret))
+                    return (method.name, (ty, false))
+                })),
+                pub: false
             )
-        case let .TraitImpl(trait, ty, methods):
-            let genTy = ty.generalize(level: lvl)
-            return .TraitImpl(
-                trait: trait,
-                ty: genTy,
-                methods: methods.map({ (pub, modifier, name, args, retTy, body) in
-                    (
-                        pub: pub,
-                        modifier: modifier,
-                        name: name,
-                        args: args.map({ (pat, ty) in (pat.core(), ty) }),
-                        retTy: retTy,
-                        body: body.core(ctx, lvl),
-                        ty: Ty.fresh(level: lvl)
-                    )
-                })
+            
+            return ta
+        
+        case let .TraitImpl(trait, _, methods):
+            let freshTy = Ty.fresh(level: lvl + 1)
+            let implTy = Ty.const(trait, [freshTy])
+            ctx.env.declareTraitImpl(trait: trait, implementee: freshTy, context: [:])
+            let name = "$impl\(trait)\((ctx.env.traitImpls[trait] ?? []).count)"
+            
+            return .Let(
+                pub: true,
+                mut: false,
+                pat: .variable(name),
+                ty: implTy,
+                val: .Record(
+                    methods.map({ method in (
+                        method.name,
+                        .Fun(
+                            modifier: method.modifier,
+                            args: method.args.map({ (pat, ty) in (pat.core(), ty) }),
+                            retTy: method.ret,
+                            body: method.body.core(ctx, lvl + 1),
+                            ty: .fresh(level: lvl + 1)
+                        )
+                    ) }),
+                    ty: implTy
+                )
             )
+
         case let .Error(err, span):
             return .Error(err, span: span)
         }
@@ -363,7 +354,7 @@ enum CorePattern: CustomStringConvertible {
                 if case let .const("Tuple", tys) = ann?.deref() {
                     elemTys = tys
                 } else {
-                    elemTys = patterns.map({ _ in nil })
+                    elemTys = patterns.map({ _ in Ty.fresh(level: level) })
                 }
                 
                 return .tuple(try zip(patterns, elemTys).map({ (pat, ty) in try go(pat, ty)}))

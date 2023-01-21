@@ -406,7 +406,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
             switch ty {
             case let .variable(tyVar):
                 switch tyVar.ref {
-                case let .unbound(id, _, traits):
+                case let .unbound(id, level, traits):
                     if !traits.ref.isEmpty {
                         if tyVarTraits.keys.contains(id) {
                             for trait in traits.ref {
@@ -417,7 +417,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                         }
                     }
 
-                    return canonicalized(id)
+                    return "\(canonicalized(id))_\(level)"
                 case let .link(to):
                     return go(to)
                 case let .generic(id, traits):
@@ -698,6 +698,10 @@ extension Ty.TraitBounds {
         }
 
         return bounds
+    }
+
+    func tys() -> [Ty] {
+        return self.values.flatMap({ $0 })
     }
 }
 

@@ -22,7 +22,7 @@ class Parser {
         index = 0
         statementStartIndex = 0
         declarationStartIndex = 0
-        generalizationLevel = 0
+        generalizationLevel = 1
         tyParamScopes = []
     }
     

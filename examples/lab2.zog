@@ -1,0 +1,26 @@
+import "../std/array.zog" { map }
+import "../std/string.zog" { join }
+
+declare console: { log: _ => () }
+
+trait Show {
+    fun show(self: Self): str
+}
+
+type Show<a> = { show: a => str }
+
+let showNum: num => str = raw { n => String(n) }
+
+let dictShowNum: Show<num> = {
+    show: showNum,
+}
+
+let dictShowStr: Show<str> = {
+    show: s => s,
+}
+
+let dictShowPair: Show<(a, b)> = {
+    show: ((x, y)) => "(" ++ x.show()++ ", " ++ y.show()++ ")",
+}
+
+// (console.log)((3, "yo").show())
