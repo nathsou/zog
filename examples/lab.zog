@@ -1,12 +1,22 @@
-import "../std/foundation.zog" { print }
-import "../std/math.zog" { constants }
-import "../std/type.zog" { Type }
+import "../std/foundation.zog" { print, Show }
 import "../std/array.zog" { map }
 import "../std/string.zog" { join }
 
-print(constants.PI)
+impl Show for (a, b) {
+    fun show((x, y)) {
+        "(" ++ x.show() ++ ", " ++ y.show() ++ ")"
+    }
+}
 
-type Vec2 = { x: num, y: num }
+impl Show for a[] {
+    fun show(xs) {
+        "[" ++ xs->map(x => x.show())->join(", ") ++ "]"
+    }
+}
 
-let add = (u, v) => { x: u.x + v.x, y: u.y + v.y }
-
+print((23, "yo"))
+print(("yo", 23))
+print([2, 3, 5, 7, 11, 13, 17, 19, 23, 29])
+print(["a", "b", "c"])
+print([[1], [2]])
+print((1, (2, (3, (4, (5, (6, 7)))))))

@@ -9,17 +9,35 @@ import Foundation
 
 let reservedIdentifiers = Set(["eval", "throw", "Infinity"])
 
+struct TraitDict: Hashable {
+    let trait: String
+    let id: TyVarId
+}
+
 class CoreContext {
     let env: TypeEnv
     let parent: CoreContext?
     var statements = [JSStmt]()
     var rootVariables: Ref<[String:Int]>
     var localVariables = [String:String]()
+    var traitImpls: [String:[(ty: Ty, dict: String)]]
+    // we ensured during type-checking that there are no name clashes
+    var traitMethods: [String:String]
+    var traitDicts = [TraitDict:String]()
     
     init(parent: CoreContext? = nil, env: TypeEnv) {
         self.parent = parent
         self.rootVariables = parent?.rootVariables ?? Ref([:])
         self.env = env
+        self.traitImpls = parent?.traitImpls ?? [:]
+        self.traitMethods = parent?.traitMethods ?? [:]
+        self.traitDicts = parent?.traitDicts ?? [:]
+        
+        if parent == nil {
+            for (trait, impls) in env.traitImpls {
+                traitImpls[trait] = impls.map({ impl in (impl.implementee, impl.dict) })
+            }
+        }
     }
     
     func child() -> CoreContext {
@@ -64,7 +82,90 @@ class CoreContext {
             throw TypeError.unknownVariable(name)
         }
     }
-    
+
+    func lookupTraitMethod(_ name: String) throws -> String {
+        if let method = traitMethods[name] {
+            return method
+        } else if let parent {
+            return try parent.lookupTraitMethod(name)
+        } else {
+            throw TypeError.unknownVariable(name)
+        }
+    }
+
+    func declareTraitDict(trait: String, id: TyVarId) -> String? {
+        let dictName = "$dict_\(trait)_\(TyVar.showId(id))"
+
+        do {
+            let _ = try lookup(dictName)
+            return nil
+        } catch {
+            let dict = declare(dictName)
+            traitDicts[TraitDict(trait: trait, id: id)] = dict
+            return dict
+        }
+    }
+
+    func resolveTraitDict(trait: String, ty: Ty) throws -> JSExpr? {
+        // if this is a type variable, we need to look up the dictionary
+        if let id = ty.tyVarId() {
+            if let dict = traitDicts[TraitDict(trait: trait, id: id)] {
+                return .variable(dict)
+            }
+        }
+
+        // otherwise, we need to look up the dictionary in the trait impls
+        if let impls = traitImpls[trait] {
+            for impl in impls {
+                let instTy = try impl.ty.instantiate(level: 0, env: self.env).ty
+                if let subst = env.unifyPure(instTy, ty) {
+                    let placeholders = Ref<[Placeholder]>([])
+                    let instTySubst = instTy.substitute(subst.ref)
+                    
+                    for (trait, tys) in instTySubst.traitBounds() {
+                        for ty in tys {
+                            placeholders.ref.append(Placeholder.Trait(trait: trait, ty: ty))
+                        }
+                    }
+
+                    let dict = CoreExpr.Var(
+                        impl.dict,
+                        placeholders: placeholders,
+                        ty: .const(trait, [instTySubst])
+                    )
+
+                    // TODO: use original TypeContext instance
+                    let tyCtx = TypeContext(env: env, resolver: Resolver())
+                    let _ = try dict.infer(tyCtx, 0)
+                    return try dict.codegen(self)
+                }
+            }
+        }
+
+        if let parent {
+            return try parent.resolveTraitDict(trait: trait, ty: ty)
+        } else {
+            return nil
+        }
+    }
+
+    func resolveDictPlaceholder(_ placeholder: Placeholder) throws -> JSExpr? {
+        switch placeholder {
+            case let .Trait(trait, ty):
+                let dict = try resolveTraitDict(trait: trait, ty: ty)
+                guard let dict = dict else { return nil }
+                return dict
+            case let .Method(trait, method, subjectTy):
+                let dict = try resolveTraitDict(trait: trait, ty: subjectTy)
+
+                guard let dict = dict else {
+                    fatalError("No dictionary for \(trait) \(subjectTy), dicts: \(traitImpls)")
+                }
+
+                return JSExpr.objectAccess(dict, field: method)
+        }
+    }
+
     func formatVarName(_ name: String, count: Int) -> String {
         if count == 1 {
             return name
@@ -93,10 +194,29 @@ extension CoreExpr {
         case let .BinaryOp(lhs, op, rhs, _):
             return .binaryOperation(try lhs.codegen(ctx), op, try rhs.codegen(ctx))
         case let .Parens(expr, _): return .parens(try expr.codegen(ctx))
-        case let .Var(name, _): return .variable(try ctx.lookup(name))
-        case let .Fun(modifier, args, _, body, _):
+        case let .Var(name, placeholders, _):
+            if !placeholders.ref.isEmpty {
+                let dicts = try placeholders.ref.compactMap({ try ctx.resolveDictPlaceholder($0) })
+                return .call(lhs: .variable(try ctx.lookup(name)), args: dicts)
+            }
+
+            return .variable(try ctx.lookup(name))
+        case let .Fun(modifier, args, _, body, funTy):
+            let traitBounds = funTy.traitBounds()
             let funCtx = ctx.child()
             let newArgs = try args.map({ (arg, _) in try arg.codegen(funCtx) })
+            var dictArgs = [JSExpr]()
+
+            traitBounds.forEach({ (trait, tys) in
+                tys.forEach({ ty in
+                    if let id = ty.tyVarId() {
+                        if let dictName = funCtx.declareTraitDict(trait: trait, id: id) {
+                            dictArgs.append(JSExpr.variable(dictName))
+                        }
+                    }
+                })
+            })
+
             let ret = try body.codegen(funCtx)
             
             if case .undefined = ret {
@@ -106,12 +226,20 @@ extension CoreExpr {
                 funCtx.statements.append(.return_(ret))
             }
 
+            let f: JSExpr
+
             switch modifier {
-                case .iterator:
-                return .generator(args: newArgs, stmts: funCtx.statements)
-                case .fun:
-                return .closure(args: newArgs, stmts: funCtx.statements)
-            } 
+            case .iterator:
+                f = .generator(args: newArgs, stmts: funCtx.statements)
+            case .fun:
+                f = .closure(args: newArgs, stmts: funCtx.statements)
+            }
+
+            if !dictArgs.isEmpty {
+                return .closure(args: dictArgs, stmts: [.return_(f)])
+            } else {
+                return f
+            }
         case let .Call(f, args, _):
             return .call(lhs: try f.codegen(ctx), args: try args.map({ try $0.codegen(ctx) }))
         case let .Block(stmts, ret, _):
@@ -167,7 +295,7 @@ extension CoreExpr {
                 env: ctx.env
             )
             
-            if case .Var(_, _) = expr {
+            if case .Var(_, _, _) = expr {
                 return try dt.rewrite(
                     subject: expr,
                     returnTy: ty,
@@ -239,10 +367,68 @@ extension CoreExpr {
             } else {
                 return tag
             }
+        case let .MethodCall(subject, method, args, placeholder, ty):
+            let dict = try ctx.resolveDictPlaceholder(placeholder.ref!)
+
+            if dict == nil {
+                let trait = ctx.env.traitMethods[method]!.first!
+                throw TypeError.noTraitImplForType(trait: trait, ty: ty)
+            }
+
+            return .call(
+                lhs: dict!,
+                args: [try subject.codegen(ctx)] + (try args.map({ try $0.codegen(ctx) }))
+            )
         case let .BuiltInCall(name, args, _):
             return try BuiltIn.codegen(name: name, args: args, ctx: ctx)
         }
     }
+}
+
+func codegenLet(
+    ctx: CoreContext,
+    pub: Bool,
+    mut: Bool,
+    pat: CorePattern,
+    val: CoreExpr,
+    ann: Ty?
+) throws -> JSStmt {
+    let ty = val.ty
+    let traitBounds = ty.traitBounds()
+    let declCtx = ctx.child()
+    var dictArgs = [JSExpr]()
+
+    traitBounds.forEach({ (trait, tys) in
+        tys.forEach({ ty in
+            if let id = ty.tyVarId() {
+                if let dictName = declCtx.declareTraitDict(trait: trait, id: id) {
+                    dictArgs.append(JSExpr.variable(dictName))
+                }
+            }
+        })
+    })
+
+    if case let .variable(dictName) = pat, dictName.starts(with: "$impl") {
+        if case let .const(traitName, args) = ty, args.count == 1 {
+            let implTy = args[0].generalize(level: 0)
+            if ctx.traitImpls.keys.contains(traitName) {
+                ctx.traitImpls[traitName]!.append((implTy, dictName))
+            } else {
+                ctx.traitImpls[traitName] = [(implTy, dictName)]
+            }
+        }
+    }
+
+    if dictArgs.count > 0 {
+        return .varDecl(
+            export: pub,
+            const: !mut,
+            try pat.codegen(ctx),
+            .closure(args: dictArgs, stmts: [.return_(try val.codegen(declCtx))])
+        )
+    }
+
+    return .varDecl(export: pub, const: !mut, try pat.codegen(ctx), try val.codegen(declCtx))
 }
 
 extension CoreStmt {
@@ -254,8 +440,8 @@ extension CoreStmt {
             return .expr(try expr.codegen(ctx))
         case let .Let(_, pat: .any, _, val):
             return try .expr(val.codegen(ctx))
-        case let .Let(mut, pat, ty: _, val):
-            return .varDecl(export: false, const: !mut, try pat.codegen(ctx), try val.codegen(ctx))
+        case let .Let(mut, pat, ty: ann, val):
+            return try codegenLet(ctx: ctx, pub: false, mut: mut, pat: pat, val: val, ann: ann)
         case let .If(cond, then, else_):
             let thenCtx = ctx.child()
             try then.forEach({ stmt in thenCtx.statements.append(try stmt.codegen(thenCtx)) })
@@ -329,8 +515,8 @@ extension CoreStmt {
 extension CoreDecl {
     func codegen(_ ctx: CoreContext) throws -> [JSStmt] {
         switch self {
-        case let .Let(pub, mut, pat, _, val):
-            return [.varDecl(export: pub, const: !mut, try pat.codegen(ctx), try val.codegen(ctx))]
+        case let .Let(pub, mut, pat, ann, val):
+            return [try codegenLet(ctx: ctx, pub: pub, mut: mut, pat: pat, val: val, ann: ann)]
         case let .Stmt(stmt):
             return [try stmt.codegen(ctx)]
         case .TypeAlias(_, _, _, _):
@@ -355,6 +541,8 @@ extension CoreDecl {
                     path: zogPath
                 )
             ]
+        case .Error(_, _):
+            fatalError("error decl should have been handled before")
         }
     }
 }
@@ -363,7 +551,7 @@ extension CorePattern {
     func codegen(_ ctx: CoreContext) throws -> JSExpr {
         switch self {
         case .any:
-            return .variable(ctx.declare("_"))
+            return .variable(ctx.declareMeta("_"))
         case let .variable(name):
             return .variable(ctx.declare(name))
         case .literal(_), .variant(_, _, _):

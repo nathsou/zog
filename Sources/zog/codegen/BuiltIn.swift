@@ -22,7 +22,7 @@ struct BuiltIn {
                 }
                 
                 let count = tyVarIdMapping.count
-                let name = TyVar.showTyVarId(UInt(count))
+                let name = TyVar.showId(UInt(count))
                 tyVarIdMapping[id] = name
                 return name
             }
@@ -31,14 +31,14 @@ struct BuiltIn {
                 switch ty {
                 case let .variable(v):
                     switch v.ref {
-                    case let .generic(id):
+                    case let .generic(id, _):
                         return typeVariant(
                             "Variable",
                             val: .Literal(.str(tyVarName(id).lowercased()), ty: .str)
                         )
                     case let .link(to):
                         return typeOf(to)
-                    case let .unbound(id, _):
+                    case let .unbound(id, _, _):
                         return typeVariant(
                             "Variable",
                             val: .Literal(.str(tyVarName(id)), ty: .str)

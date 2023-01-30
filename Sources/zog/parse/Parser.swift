@@ -11,6 +11,7 @@ class Parser {
     let tokens: [TokenWithPos]
     var index: Int
     var statementStartIndex: Int
+    var declarationStartIndex: Int
     var errors: [(ParserError, start: Int, end: Int)]
     var generalizationLevel: UInt
     var tyParamScopes: [[String:Ty]]
@@ -20,7 +21,8 @@ class Parser {
         errors = []
         index = 0
         statementStartIndex = 0
-        generalizationLevel = 0
+        declarationStartIndex = 0
+        generalizationLevel = 1
         tyParamScopes = []
     }
     
@@ -187,7 +189,7 @@ class Parser {
         _ = tyParamScopes.popLast()
     }
 
-    func synchronize() {
+    func synchronizeStatement() {
         advance()
 
         while let token = peek() {
@@ -208,27 +210,67 @@ class Parser {
         }
     }
 
+    func synchronizeDeclaration() {
+        advance()
+
+        while let token = peek() {
+            switch token {
+            case .identifier("impl"): return
+            case .identifier("trait"): return
+            case .identifier("enum"): return
+            case .identifier("fun"): return
+            case .identifier("iterator"): return
+            case .identifier("rewrite"): return
+            case .identifier("import"): return
+            case .identifier("declare"): return
+            case .identifier("pub"): return
+            case .keyword(.Let): return
+            case .keyword(.Mut): return
+            default: advance()
+            }
+        }
+    }
+
     // prog -> decl*
     func program() throws -> [Decl] {
         var decls = [Decl]()
 
         while let _ = peek() {
-            decls.append(try declaration())
+            decls.append(declaration())
         }
 
         return decls
     }
     
-    // ------ declaration ------
+    // ------ declarations ------
+    func declaration(pub: Bool = false) -> Decl {
+        declarationStartIndex = index
+
+        do {
+            return try declarationThrowing(pub: pub)
+        } catch let error as ParserError {
+            let start = tokens[declarationStartIndex].start
+            let end = tokens[index < tokens.count ? index : tokens.count - 1].end
+            errors.append((error, start: start, end: end))
+            synchronizeDeclaration()
+            return .Error(error, span: (start, end))
+        } catch {
+            return .Error(.expectedDeclaration, span: (declarationStartIndex, index))
+        }
+    }
+
     
-    func declaration(pub: Bool = false) throws -> Decl {
+    func declarationThrowing(pub: Bool = false) throws -> Decl {
         pushTyParamScope()
         defer { popTyParamScope() }
         
         switch peek() {
+        case .identifier("impl"):
+            advance()
+            return try traitImplDecl()
         case .identifier("pub"):
             advance()
-            return try declaration(pub: true)
+            return declaration(pub: true)
         case .keyword(.Let):
             advance()
             return try letDecl(pub: pub, mut: false)
@@ -256,6 +298,9 @@ class Parser {
         case .identifier("import"):
             advance()
             return try importDecl()
+        case .identifier("trait"):
+            advance()
+            return try traitDecl(pub: pub)
         default:
             return .Stmt(statement())
         }
@@ -274,7 +319,7 @@ class Parser {
         return .Let(pub: pub, mut: mut, pat: pat, ty: ty, val: val)
     }
     
-    // typeParams -> '<' commas(loweIdentifier) '>'
+    // typeParams -> '<' commas(lowerIdentifier) '>'
     func typeParams() throws -> [TyVarId] {
         var args = [TyVarId]()
         if match(.symbol(.lss)) {
@@ -323,8 +368,41 @@ class Parser {
         return .Enum(pub: pub, name: name, args: args, variants: variants)
     }
     
-    // funDecl -> 'pub'? ('fun' | 'iterator') identifier '(' commas(pattern) ')' (':' ty)? { stmt* expr? }
+    // traitBounds -> 'where' commas(tyParam ':' upperIdentifier)
+    func traitBounds() throws -> [(TyVarId, String)] {
+        var bounds = [(TyVarId, String)]()
+        
+        if match(.identifier("where")) {
+            repeat {
+                let param = try lowerIdentifier()
+                let ty = lookupTyParam(param)
+                assert(ty != nil, "unknown type parameter '\(param)'")
+                try consume(.symbol(.colon))
+                let trait = try upperIdentifier()
+
+                if let v = ty?.asVariable() {
+                    switch v {
+                        case let .unbound(_, _, traits):
+                            if !traits.ref.contains(trait) {
+                                traits.ref.append(trait)
+                            }
+                        default:
+                            break
+                    }
+                }
+
+                bounds.append((ty!.tyVarId()!, trait))
+            } while match(.symbol(.comma))
+        }
+        
+        return bounds
+    }
+
+    // funDecl -> 'pub'? ('fun' | 'iterator') identifier '(' commas(pattern) ')' (':' ty)? traitBounds? { stmt* expr? }
     func funDecl(pub: Bool, modifier: FunModifier) throws -> Decl {
+        generalizationLevel += 1
+        defer { generalizationLevel -= 1 }
+
         let name = try identifier()
         try consume(.symbol(.lparen))
         var args = [(Pattern, Ty?)]() 
@@ -336,11 +414,10 @@ class Parser {
             } while match(.symbol(.comma))
         }
         try consume(.symbol(.rparen))
-        generalizationLevel += 1
         let retTy = try typeAnnotation()
+        let _ = try traitBounds()
         try consume(.symbol(.lcurlybracket))
         let body = try block()
-        generalizationLevel -= 1
         try consume(.symbol(.semicolon))
         
         return .Fun(pub: pub, modifier: modifier, name: name, args: args, retTy: retTy, body: body)
@@ -385,6 +462,99 @@ class Parser {
         }
     }
     
+    // traitFunSig -> ('fun' | 'iterator') identifier commas(pattern ':' ty) ')' ':' ty
+    func traitFunctionSignature(modifier: FunModifier) throws -> (
+        modifier: FunModifier,
+        name: String,
+        args: [(String, Ty)],
+        ret: Ty
+    ) {
+        let name = try identifier()
+        try consume(.symbol(.lparen))
+        var args = [(String, Ty)]()
+        if !check(.symbol(.rparen)) {
+            repeat {
+                let argName = try identifier()
+                if !match(.symbol(.colon)) {
+                    throw ParserError.expectedTypeAnnotationInTraitMethodSig
+                }
+                let ty = try type()
+                args.append((argName, ty))
+            } while match(.symbol(.comma))
+        }
+        try consume(.symbol(.rparen))
+        try consume(.symbol(.colon))
+        let ret = try type()
+        try consume(.symbol(.semicolon))
+        
+        return (modifier, name, args, ret)
+    }
+    
+    // traitDecl -> 'pub'? 'trait' upperIdentifier '{' decl* '}'
+    func traitDecl(pub: Bool) throws -> Decl {
+        generalizationLevel += 1
+        defer { generalizationLevel -= 1 }
+
+        let name = try upperIdentifier()
+        var methods = [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]() 
+        try consume(.symbol(.lcurlybracket))
+        
+        while !check(.symbol(.rcurlybracket)) {
+            switch peek() {
+            case .identifier("fun"):
+                advance()
+                methods.append(try traitFunctionSignature(modifier: .fun))
+            case .identifier("iterator"):
+                advance()
+                methods.append(try traitFunctionSignature(modifier: .iterator))
+            default:
+                throw ParserError.invalidFunctionSignatureInTrait
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        try consume(.symbol(.semicolon))
+        
+        return .Trait(pub: pub, name: name, methods: methods)
+    }
+
+    // traitImplDecl -> 'impl' upperIdentifier 'for' ty traitBounds? '{' decl* '}'
+    func traitImplDecl() throws -> Decl {
+        generalizationLevel += 1
+        defer { generalizationLevel -= 1 }
+        
+        let name = try upperIdentifier()
+        try consume(.keyword(.For))
+        let ty = try type()
+        let _ = try traitBounds()
+
+        var methods = [(
+            pub: Bool,
+            modifier: FunModifier,
+            name: String,
+            args: [(Pattern, Ty?)],
+            ret: Ty?,
+            body: Expr
+        )]()
+
+        try consume(.symbol(.lcurlybracket))
+        
+        while !check(.symbol(.rcurlybracket)) {
+            let decl = declaration()
+            switch decl {
+            case let .Fun(pub, modifier, name, args, retTy, body):
+                methods.append((pub, modifier, name, args, retTy, body))
+            default:
+                throw ParserError.illegalDeclinImpl(decl.kind)
+            }
+        }
+        
+        try consume(.symbol(.rcurlybracket))
+        try consume(.symbol(.semicolon))
+        
+        return .TraitImpl(trait: name, ty: ty, methods: methods)
+    }
+
     // ------ statements ------
 
     func statement() -> Stmt {
@@ -396,7 +566,7 @@ class Parser {
             let start = tokens[statementStartIndex].start
             let end = tokens[index < tokens.count ? index : tokens.count - 1].end
             errors.append((error, start: start, end: end))
-            synchronize()
+            synchronizeStatement()
             return .Error(error, span: (start, end))
         } catch {
             return .Error(.expectedStatement, span: (statementStartIndex, index))
@@ -814,7 +984,13 @@ class Parser {
                 lhs = .Call(f: lhs, args: args)
             } else if match(.symbol(.dot)) {
                 let field = try identifier()
-                lhs = .RecordSelect(lhs, field: field)
+                if match(.symbol(.lparen)) {
+                    let args = try commas(expression)
+                    try consume(.symbol(.rparen))
+                    lhs = .MethodCall(subject: lhs, method: field, args: args)
+                } else {
+                    lhs = .RecordSelect(lhs, field: field)
+                }
             } else if match(.symbol(.thinArrow)) {
                 let f = try identifier()
                 

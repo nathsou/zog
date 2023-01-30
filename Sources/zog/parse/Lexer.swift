@@ -34,12 +34,14 @@ struct Lexer {
         tokens.append(TokenWithPos(token: token, start: startIndex, end: index))
     }
 
-    func peek() -> Character? {
-        guard index >= 0, index < chars.count else {
+    func peek(lookahead: Int = 0) -> Character? {
+        let newIndex = index + lookahead
+
+        guard newIndex >= 0, newIndex < chars.count else {
             return nil
         }
 
-        return chars[index]
+        return chars[newIndex]
     }
 
     func shouldInsertSemicolon() -> Bool {
@@ -90,7 +92,8 @@ struct Lexer {
             _ = advance()
         }
 
-        if match(".") {
+        if case "." = peek(), let c = peek(lookahead: 1), c.isDigit {
+            _ = advance()
             while let c = peek(), c.isDigit {
                 _ = advance()
             }

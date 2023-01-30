@@ -1,13 +1,2 @@
-declare console: { log: _ => () }
-
-pub type Show<a> = { show: a => str }
-
-pub fun print2({ show }: Show<a>, value: a) {
-    console.log(show(value))
-}
 
 pub let join: (str[], str) => str = raw { (str, sep) => str.join(sep) }
-
-pub let showBool: Show<bool> = { show: q => if q { "true" } else { "false" } }
-
-pub let showNum: Show<num> = { show: raw { n => String(n) } }

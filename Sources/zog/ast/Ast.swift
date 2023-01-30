@@ -149,6 +149,7 @@ indirect enum Expr: CustomStringConvertible {
     case Raw(js: String)
     case Match(Expr, cases: [(Pattern, Expr)])
     case Variant(typeName: String?, variantName: String, args: [Expr])
+    case MethodCall(subject: Expr, method: String, args: [Expr])
     case BuiltInCall(String, [Expr])
 
     public var description: String {
@@ -215,6 +216,8 @@ indirect enum Expr: CustomStringConvertible {
             return "\(variantName)(\(args.commas()))"
         case let .Variant(typeName?, variantName, args):
             return "\(typeName).\(variantName)(\(args.commas()))"
+        case let .MethodCall(subject, method, args):
+            return "\(subject).\(method)(\(args.commas()))"
         case let .BuiltInCall(name, args):
             return "@\(name)(\(args.commas()))"
         }
@@ -266,6 +269,8 @@ indirect enum Expr: CustomStringConvertible {
                 res = .Match(aux(subject), cases: cases.map({ (pat, body) in (pat, aux(body)) }))
             case let .Variant(typeName, variantName, args):
                 res = .Variant(typeName: typeName, variantName: variantName, args: args.map(aux))
+            case let .MethodCall(subject, method, args):
+                res = .MethodCall(subject: aux(subject), method: method, args: args.map(aux))
             case let .BuiltInCall(name, args):
                 res = .BuiltInCall(name, args.map(aux))
             }
@@ -368,6 +373,17 @@ enum Decl: CustomStringConvertible {
     case Rewrite(pub: Bool, ruleName: String, args: [String], rhs: Expr)
     case Declare(pub: Bool, name: String, ty: Ty)
     case Import(path: String, members: [String]?)
+    case Trait(
+        pub: Bool,
+        name: String,
+        methods: [(modifier: FunModifier, name: String, args: [(String, Ty)], ret: Ty)]
+    )
+    case TraitImpl(
+        trait: String,
+        ty: Ty,
+        methods: [(pub: Bool, modifier: FunModifier, name: String, args: [(Pattern, Ty?)], ret: Ty?, body: Expr)]
+    )
+    case Error(ParserError, span: (Int, Int))
     
     var description: String {
         switch self {
@@ -379,7 +395,7 @@ enum Decl: CustomStringConvertible {
             return "pub ".when(pub) + "type \(name) = \(ty)"
         case let .TypeAlias(pub, name, args, ty):
             let argsFmt = args
-                .map({ TyVar.showTyVarId($0).lowercased() })
+                .map({ TyVar.showId($0).lowercased() })
                 .commas()
             
             return "pub ".when(pub) + "type \(name)<\(argsFmt)> = \(ty)"
@@ -393,7 +409,7 @@ enum Decl: CustomStringConvertible {
             }
             
             let argsFmt = args
-                .map({ TyVar.showTyVarId($0).lowercased() })
+                .map({ TyVar.showId($0).lowercased() })
                 .commas()
             
             return "pub ".when(pub) + "enum \(name)<\(argsFmt)> {\n\(variantsFmt)\n}"
@@ -411,6 +427,52 @@ enum Decl: CustomStringConvertible {
             return "import \"\(path)\" { \(members.commas()) }" 
         case let .Import(path, nil):
             return "import \"\(path)\"" 
+        case let .Trait(pub, name, members):
+            let membersFmt = members
+                .map({ (modifier, name, args, retTy) in
+                    let argsFmt = args
+                        .map({ (pat, ty) in "\(pat)\(ann(ty))" })
+                        .commas()
+                    
+                    return "\(modifier) \(name) (\(argsFmt)): \(retTy)"
+                })
+                .newlines()
+
+            return "pub ".when(pub) + "trait \(name) {\n\(membersFmt)\n}"
+        case let .TraitImpl(trait, ty, methods):
+            let methodsFmt = methods
+                .map({ (pub, modifier, name, args, retTy, body) in
+                    let argsFmt = args
+                        .map({ (pat, ty) in "\(pat)\(ann(ty))" })
+                        .commas()
+                    
+                    return "pub".when(pub) + "\(modifier) \(name) (\(argsFmt))\(ann(retTy)) {\n\(indent(body))\n}"
+                })
+                .newlines()
+            
+            return "impl" + " \(trait) for \(ty)" + " {\n\(methodsFmt)\n}"
+        case let .Error(err, span):
+            return "\(err) at \(span)"
+        }
+    }
+
+    enum Kind {
+        case Let, Stmt, TypeAlias, Enum, Fun, Rewrite, Declare, Import, Trait, TraitImpl, Error
+    }
+
+    var kind: Kind {
+        switch self {
+        case .Let: return .Let
+        case .Stmt: return .Stmt
+        case .TypeAlias: return .TypeAlias
+        case .Enum: return .Enum
+        case .Fun: return .Fun
+        case .Rewrite: return .Rewrite
+        case .Declare: return .Declare
+        case .Import: return .Import
+        case .Trait: return .Trait
+        case .TraitImpl: return .TraitImpl
+        case .Error: return .Error
         }
     }
 }

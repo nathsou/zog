@@ -77,7 +77,7 @@
       </BuildableProductRunnable>
       <CommandLineArguments>
          <CommandLineArgument
-            argument = "/Users/nathan/Documents/Code/Swift/zog/examples/lab.zog"
+            argument = "/Users/nathan/Documents/Code/Swift/zog/examples/lambda.zog"
             isEnabled = "YES">
          </CommandLineArgument>
       </CommandLineArguments>

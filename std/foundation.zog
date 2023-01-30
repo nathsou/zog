@@ -1,7 +1,34 @@
 
 declare console: { log: _ => () }
 
-pub let print = console.log
+trait Show {
+    fun show(x: Self): str
+}
+
+let showNum: num => str = raw { n => String(n) }
+
+impl Show for num {
+    fun show(n) {
+        showNum(n)
+    }
+}
+
+impl Show for str {
+    fun show(s) {
+        s
+    }
+}
+
+impl Show for bool {
+    fun show(q) {
+        if q { "true" } else { "false" }
+    }
+}
+
+pub fun print(x) {
+    (console.log)(x.show())
+}
+
 pub let raise: str => _ = raw { msg => { throw new Error(msg); } }
 
 pub rewrite assert(test) -> if !(test) {

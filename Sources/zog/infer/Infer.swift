@@ -37,7 +37,7 @@ class TypeContext {
 extension CoreExpr {
     func infer(_ ctx: TypeContext, _ level: UInt, expectedTy: Ty? = nil) throws -> Ty {
         let tau: Ty
-        
+
         if let expectedTy {
             try ctx.env.unify(self.ty, expectedTy)
         }
@@ -45,9 +45,15 @@ extension CoreExpr {
         switch self {
         case let .Literal(lit, _):
             tau = lit.ty
-        case let .Var(name, _):
+        case let .Var(name, placeholders, _):
             if let info = ctx.env.lookup(name) {
-                tau = info.ty.instantiate(level: level)
+                tau = try info.ty.instantiate(level: level, env: ctx.env).ty
+
+                for (trait, tys) in tau.traitBounds() {
+                    for ty in tys {
+                        placeholders.ref.append(Placeholder.Trait(trait: trait, ty: ty))
+                    }
+                }
             } else {
                 throw TypeError.unknownVariable(name)
             }
@@ -75,13 +81,13 @@ extension CoreExpr {
                 }
             }
             
-            let innerRetTy = retTyAnn ?? .fresh(level: level)
+            let innerRetTy = retTyAnn ?? .fresh(level: level + 1)
             let isIterator = modifier == .iterator
             let retTy = isIterator ? Ty.iterator(innerRetTy) : innerRetTy
             TypeEnv.pushFunctionInfo(retTy: retTy, isIterator: isIterator)
-            var actualRetTy = try body.infer(bodyCtx, level, expectedTy: retTyAnn)
+            var actualRetTy = try body.infer(bodyCtx, level + 1, expectedTy: retTyAnn)
             if isIterator {
-                actualRetTy = .iterator(.fresh(level: level))
+                actualRetTy = .iterator(.fresh(level: level + 1))
                 try ctx.env.unify(retTy, actualRetTy)
             } else {
                 try ctx.env.unify(retTy, actualRetTy)
@@ -287,6 +293,32 @@ extension CoreExpr {
             
             try ctx.env.unify(enumTy, ty)
             tau = ty
+        case let .MethodCall(subject, method, args, placeholder, ty):
+            let traits = ctx.env.traitMethods[method] ?? []
+            let subjectTy = try subject.infer(ctx, level)
+            switch traits.count {
+            case 0:
+                throw TypeError.unknownMethodForType(method, subject.ty)
+            case 1:
+                let trait = traits[0]
+                try ctx.env.propagateTraits(traits: [trait], ty: subjectTy, level: level)
+                let info = ctx.env.lookupTrait(trait)!
+                let selfTy = Ty.fresh(level: level)
+                let methodInfo = info.methods[method]!
+                let methodInst = try methodInfo.ty
+                    .substitute([info.subjectTy.tyVarId()!:selfTy])
+                    .instantiate(level: level, env: ctx.env)
+                let methodCtx = ctx.child()
+                let funTy = Ty.fun([subjectTy] + args.map({ $0.ty }), ty)
+                try methodCtx.env.unify(methodInst.ty, funTy)
+                placeholder.ref = .Method(trait: trait, method: method, subjectTy: selfTy)
+            default:
+                // should be handled when type checking impl blocks
+                // i.e overlapping method implementations for a given type are not allowed
+                fatalError("multiple traits for method '\(method)'")
+            }
+
+            tau = ty
         case let .BuiltInCall(name, args, _):
             for arg in args {
                 _ = try arg.infer(ctx, level)
@@ -338,12 +370,12 @@ func inferLet(
     }
     
     let valTy = try value.infer(rhsCtx, level + 1, expectedTy: annotation)
-    
     try ctx.env.unify(patternTy, valTy)
     
     for (name, ty) in patternVars {
         // https://en.wikipedia.org/wiki/Value_restriction
         let genTy = !mut ? ty.generalize(level: level) : ty
+
         try ctx.env.declare(
             name,
             ty: genTy,
@@ -462,7 +494,7 @@ extension CoreDecl {
         case let .Declare(pub, name, ty):
             try ctx.env.declare(name, ty: ty.generalize(level: level), pub: pub)
         case let .Import(path, members):
-            if let mod = ctx.resolver.modules[path] {
+            if let mod = try ctx.resolver.resolve(path: path, level: level) {
                 for member in members! {
                     if let info = mod.members[member] {
                         try ctx.env.declare(member, ty: info.ty, pub: false)
@@ -473,6 +505,31 @@ extension CoreDecl {
                             variants: info.variants.variants,
                             pub: false
                         )
+                    } else if let trait = mod.traits[member] {
+                        let _ = ctx.env.declareTrait(
+                            name: member,
+                            subjectTy: trait.subjectTy,
+                            methods: trait.methods,
+                            pub: false,
+                            level: level
+                        )
+                        
+                        if let impls = mod.traitImpls[member] {
+                            for impl in impls {
+                                let dictName = impl.dict
+                                if !ctx.env.contains(dictName) {
+                                    ctx.env.declareTraitImpl(
+                                        trait: member,
+                                        dict: dictName,
+                                        implementee: impl.implementee,
+                                        context: impl.context
+                                    )
+                                    
+                                    // let dictVar = mod.members[impl.dict]!
+                                    // try ctx.env.declare(dictName, ty: dictVar.ty, pub: false)
+                                }
+                            }
+                        }
                     } else if let info = mod.typeAliases[member] {
                         ctx.env.declareAlias(name: member, args: info.args, ty: info.ty, pub: false, level: level)
                     } else if ctx.env.containsRule(member) {
@@ -484,6 +541,8 @@ extension CoreDecl {
             } else {
                 fatalError("Could not resolve module \(path)")
             } 
+        case .Error(_, _):
+            break
         }
     }
 }

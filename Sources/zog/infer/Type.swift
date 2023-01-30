@@ -53,24 +53,32 @@ class EnumVariants {
 
 class TypeEnv: CustomStringConvertible {
     typealias VarInfo = (ty: Ty, pub: Bool)
+    typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
     typealias AliasInfo = (args: [TyVarId], ty: Ty, pub: Bool)
     typealias EnumInfo = (args: [TyVarId], variants: EnumVariants, pub: Bool)
     typealias RewritingRuleInfo = (args: [String], rhs: Expr, pub: Bool)
+    typealias TraitInfo = (subjectTy: Ty, methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool)
+    typealias TraitImplInfo = (implementee: Ty, context: [TyVarId:TyVar.Context], dict: String)
     
     let parent: TypeEnv?
+    let depth: Int
     var vars = [String:VarInfo]()
     var aliases = [String:AliasInfo]()
     var enums = [String:EnumInfo]()
     var rewritingRules = [String:RewritingRuleInfo]()
-    typealias FunctionInfo = (returnTy: Ty, isIterator: Bool)
+    var traits = [String:TraitInfo]()
+    var traitImpls = [String:[TraitImplInfo]]()
+    var traitMethods: [String:[String]] = [:]
     static var functionInfoStack = [FunctionInfo]()
 
     init() {
         parent = nil
+        depth = 0
     }
     
     init(parent: TypeEnv? = nil) {
         self.parent = parent
+        depth = (parent?.depth ?? -1) + 1
     }
     
     func lookup(_ name: String) -> VarInfo? {
@@ -84,11 +92,28 @@ class TypeEnv: CustomStringConvertible {
     func contains(_ name: String) -> Bool {
         return lookup(name) != nil
     }
+
+    func rename(_ name: String) -> String {
+        if !contains(name) {
+            return name
+        }
+
+        var i = 0
+
+        while true {
+            let newName = "\(name)$\(i)"
+            if !contains(newName) {
+                return newName
+            }
+            i += 1
+        }
+
+    }
     
     func declare(_ name: String, ty: Ty, pub: Bool = false) throws {
-        guard vars[name] == nil else {
-            throw TypeError.cannotRedeclareVariable(name)
-        }
+       guard vars[name] == nil else {
+           throw TypeError.cannotRedeclareVariable(name)
+       }
         
         vars[name] = (ty, pub)
     }
@@ -104,7 +129,7 @@ class TypeEnv: CustomStringConvertible {
     func lookupAlias(name: String, args: [Ty]) throws -> Ty {
         if let alias = aliases[name] {
             let subst = Dictionary(uniqueKeysWithValues: zip(alias.args, args))
-            return alias.ty.substitute(subst).instantiate(level: 0)
+            return try alias.ty.substitute(subst).instantiate(level: 0, env: self).ty
         }
         
         if let parent {
@@ -152,10 +177,54 @@ class TypeEnv: CustomStringConvertible {
         return rewritingRules.keys.contains(name)
     }
 
+    func declareTrait(
+        name: String,
+        subjectTy: Ty,
+        methods: [String:(ty: Ty, isStatic: Bool)],
+        pub: Bool,
+        level: UInt
+    ) -> CoreDecl {
+        traits[name] = (subjectTy, methods, pub)
+
+        for method in methods.keys {
+            if traitMethods[method] == nil {
+                traitMethods[method] = [name]
+            } else {
+                traitMethods[method]!.append(name)
+            }
+        }
+        
+        let traitTy = Ty.record(Row.from(entries: methods.map({ (method, info) in
+            (method, info.ty)
+        })))
+        
+        let ta = CoreDecl.TypeAlias(pub: pub, name: name, args: [subjectTy.tyVarId()!], ty: traitTy)
+        
+        declareAlias(name: name, args: [subjectTy.tyVarId()!], ty: traitTy, pub: pub, level: level)
+        
+        return ta
+    }
+
+    func lookupTrait(_ name: String) -> TraitInfo? {
+        return traits[name]
+    }
+
+    func declareTraitImpl(trait: String, dict: String, implementee: Ty, context: [TyVarId:TyVar.Context]) {
+        let info = TraitImplInfo(implementee: implementee, context: context, dict: dict)
+        if traitImpls[trait] == nil {
+            traitImpls[trait] = [info]
+        } else {
+            traitImpls[trait]!.append(info)
+        }
+    }
+
     func child() -> TypeEnv {
         let child = TypeEnv.init(parent: self)
         child.aliases = aliases
         child.enums = enums
+        child.traits = traits
+        child.traitMethods = traitMethods
+        child.traitImpls = traitImpls
         return child
     }
     
@@ -178,11 +247,13 @@ class TypeEnv: CustomStringConvertible {
 }
 
 enum TyVar: Equatable, CustomStringConvertible {
-    case unbound(id: TyVarId, level: UInt)
+    typealias Context = [String]
+    
+    case unbound(id: TyVarId, level: UInt, context: Ref<Context> = Ref([]))
     case link(Ty)
-    case generic(TyVarId)
+    case generic(TyVarId, context: Ref<Context> = Ref([]))
 
-    static func showTyVarId(_ id: TyVarId) -> String {
+    static func showId(_ id: TyVarId) -> String {
         let char = UnicodeScalar(65 + Int(id % 26))!
 
         if id > 26 {
@@ -194,12 +265,16 @@ enum TyVar: Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case let .unbound(id, _):
-            return TyVar.showTyVarId(id)
+        case let .unbound(id, _, context):
+            if !context.ref.isEmpty {
+                return TyVar.showId(id) + ": " + context.ref.joined(separator: " + ")
+            } 
+            
+            return TyVar.showId(id)
         case let .link(ty):
             return "\(ty)"
-        case let .generic(id):
-            return "'" + TyVar.showTyVarId(id)
+        case let .generic(id, context):
+            return TyVar.showId(id).lowercased() + ": " + context.ref.joined(separator: " + ")
         }
     }
 
@@ -209,7 +284,7 @@ enum TyVar: Equatable, CustomStringConvertible {
     
     public static func == (lhs: TyVar, rhs: TyVar) -> Bool {
         switch (lhs, rhs) {
-        case let (.unbound(id: id1, _), .unbound(id: id2, _)):
+        case let (.unbound(id: id1, _, _), .unbound(id: id2, _, _)):
             return id1 == id2
         case let (.link(to1), .link(to2)):
             return to1.deref() == to2.deref()
@@ -273,16 +348,16 @@ enum Row: Equatable {
         return .init(uniqueKeysWithValues: entries(sorted: false))
     }
     
-    func map(types f: (_ ty: Ty) -> Ty) -> Row {
+    func map(types f: (_ ty: Ty) throws -> Ty) rethrows -> Row {
         switch self {
         case .empty:
             return .empty
         case let .extend(field, ty, tail):
             switch tail {
             case let .record(row):
-                return .extend(field: field, ty: f(ty), tail: .record(row.map(types: f)))
+                return .extend(field: field, ty: try f(ty), tail: .record(try row.map(types: f)))
             default:
-                return .extend(field: field, ty: f(ty), tail: tail)
+                return .extend(field: field, ty: try f(ty), tail: tail)
             }
         }
     }
@@ -335,27 +410,28 @@ indirect enum Ty: Equatable, CustomStringConvertible {
     }
     
     public var description: String {
-        return show(canonical: false)
+        return show(canonical: false, traits: true)
     }
     
     public var canonical: String {
-        return show(canonical: true)
+        return show(canonical: true, traits: true)
     }
     
-    public func show(canonical: Bool) -> String {
+    public func show(canonical: Bool, traits: Bool) -> String {
         var generics = Set<TyVarId>()
         var tyVarNames = [TyVarId:String]()
+        var tyVarTraits = [TyVarId:Set<String>]()
         
         func canonicalized(_ id: TyVarId) -> String {
             if !canonical {
-                return TyVar.showTyVarId(id)
+                return TyVar.showId(id)
             }
             
             if let v = tyVarNames[id] {
                 return v
             }
             
-            let v = TyVar.showTyVarId(UInt(tyVarNames.count))
+            let v = TyVar.showId(UInt(tyVarNames.count))
             tyVarNames[id] = v
             return v
         }
@@ -364,11 +440,31 @@ indirect enum Ty: Equatable, CustomStringConvertible {
             switch ty {
             case let .variable(tyVar):
                 switch tyVar.ref {
-                case let .unbound(id, _):
+                case let .unbound(id, _, traits):
+                    if !traits.ref.isEmpty {
+                        if tyVarTraits.keys.contains(id) {
+                            for trait in traits.ref {
+                                tyVarTraits[id]!.insert(trait)
+                            }
+                        } else {
+                            tyVarTraits[id] = Set(traits.ref)
+                        }
+                    }
+
                     return canonicalized(id)
                 case let .link(to):
                     return go(to)
-                case let .generic(id):
+                case let .generic(id, traits):
+                    if !traits.ref.isEmpty {
+                        if tyVarTraits.keys.contains(id) {
+                            for trait in traits.ref {
+                                tyVarTraits[id]!.insert(trait)
+                            }
+                        } else {
+                            tyVarTraits[id] = Set(traits.ref)
+                        }
+                    }
+
                     generics.insert(id)
                     return canonicalized(id).lowercased()
                 }
@@ -404,8 +500,23 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                 }
             }
         }
+
+        let rhs = go(self)
         
-        return go(self)
+        if traits && !tyVarTraits.isEmpty {        
+            let contextFmt = tyVarTraits.map({ (id, traits) in 
+                var name = canonicalized(id)
+                if generics.contains(id) {
+                    name = name.lowercased()
+                }
+                let traits = traits.joined(separator: " + ")
+                return "\(name): \(traits)"
+            }).joined(separator: ", ")
+
+            return ("\(rhs) where \(contextFmt)")
+        }
+
+        return rhs
     }
 
     func deref() -> Ty {
@@ -423,12 +534,12 @@ indirect enum Ty: Equatable, CustomStringConvertible {
             switch ty {
             case let .variable(v):
                 switch v.ref {
-                case let .unbound(id, level):
-                    return mappingFunc(id) ?? .variable(Ref(.unbound(id: id, level: level)))
+                case let .unbound(id, level, traits):
+                    return mappingFunc(id) ?? .variable(Ref(.unbound(id: id, level: level, context: Ref(Array(traits.ref)))))
                 case let .link(to):
                     return aux(to)
-                case let .generic(id):
-                    return mappingFunc(id) ?? .variable(Ref(.generic(id)))
+                case let .generic(id, context):
+                    return mappingFunc(id) ?? .variable(Ref(.generic(id, context: Ref(Array(context.ref)))))
                 }
             case let .const(name, args):
                 return .const(name, args.map(aux))
@@ -445,6 +556,129 @@ indirect enum Ty: Equatable, CustomStringConvertible {
     func substitute(_ mapping: [TyVarId:Ty]) -> Ty {
         return substitute(mappingFunc: { id in mapping[id] })
     }
+
+    func subTypes() -> [Ty] {
+        switch self {
+        case let .variable(v):
+            switch v.ref {
+            case let .link(t):
+                return t.subTypes()
+            case .unbound(_, _, _), .generic(_, _):
+                return []
+            }
+        case let .const(_, args):
+            return args
+        case let .fun(args, ret):
+            return args + [ret]
+        case let .record(row):
+            return row.entries(sorted: true).map({ $0.1 })
+        }
+    }
+
+    func unboundVars() -> Set<TyVarId> {
+        var vars = Set<TyVarId>()
+
+        func go(_ ty: Ty) {
+            switch ty {
+            case let .variable(v):
+                switch v.ref {
+                case let .link(t):
+                    go(t)
+                case let .unbound(id, _, _):
+                    vars.insert(id)
+                case .generic(_, _):
+                    break
+                }
+            case let .const(_, args):
+                args.forEach(go)
+            case let .fun(args, ret):
+                args.forEach(go)
+                go(ret)
+            case let .record(row):
+                row.entries(sorted: true).forEach({ (_, ty) in go(ty) })
+            }
+        }
+
+        go(self)
+
+        return vars
+    }
+
+    typealias TraitBounds = [String:[Ty]]
+
+    func traitBounds() -> TraitBounds {
+        var bounds = TraitBounds()
+
+        func go(_ ty: Ty) {
+            switch ty {
+            case let .variable(v):
+                switch v.ref {
+                case let .link(t):
+                    go(t)
+                case let .unbound(_, _, traits), let .generic(_, context: traits):
+                    traits.ref.forEach({ bounds[$0, default: []].append(ty) })
+                }
+            case let .const(_, args):
+                args.forEach(go)
+            case let .fun(args, ret):
+                args.forEach(go)
+                go(ret)
+            case let .record(row):
+                row.entries(sorted: true).forEach({ (_, ty) in go(ty) })
+            }
+        }
+
+        go(self)
+
+        return bounds
+    }
+    
+    func asVariable() -> TyVar? {
+        switch self {
+        case let .variable(v):
+            return v.ref
+        default:
+            return nil
+        }
+    }
+    
+    func tyVarId() -> TyVarId? {
+        switch self {
+        case let .variable(v):
+            switch v.ref {
+            case let .link(t):
+                return t.tyVarId()
+            case let .unbound(id, _, _):
+                return id
+            case let .generic(id, _):
+                return id
+            }
+        default:
+            return nil
+        }
+    }
+    
+    func rewrite(_ f: (Ty) -> Ty) -> Ty {
+        func go(_ ty: Ty) -> Ty {
+            switch ty {
+            case let .variable(v):
+                switch v.ref {
+                case let .link(t):
+                    return go(t)
+                case .unbound(_, _, _), .generic(_, _):
+                    return f(ty)
+                }
+            case let .const(name, args):
+                return f(.const(name, args.map(go)))
+            case let .fun(args, ret):
+                return f(.fun(args.map(go), go(ret)))
+            case let .record(row):
+                return f(.record(row.map(types: go)))
+            }
+        }
+        
+        return go(self)
+    }
     
     static func == (s: Ty, t: Ty) -> Bool {
         return "\(s)" == "\(t)"
@@ -458,16 +692,16 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
             switch v.ref {
             case let .link(t):
                 try go(t)
-            case let .unbound(id: otherId , level: otherLvl):
+            case let .unbound(id: otherId , level: otherLvl, traits):
                 if otherId == id {
                     throw TypeError.recursiveType(.variable(Ref(.unbound(id: id, level: level))), ty)
                 }
 
                 if otherLvl > level {
-                    v.ref = .unbound(id: otherId, level: level)
+                    v.ref = .unbound(id: otherId, level: level, context: traits)
                 }
-            case .generic(_):
-                fatalError("generic ty")
+            case .generic(_, _):
+                fatalError("generic type")
          }
         case let .const(_, args):
             for arg in args {
@@ -489,15 +723,54 @@ func occursCheckAdjustLevels(id: UInt, level: UInt, ty: Ty) throws {
     try go(ty)
 }
 
+extension Ty.TraitBounds {
+    func merging(_ other: Ty.TraitBounds) -> Ty.TraitBounds {
+        var bounds = self
+
+        for (trait, tys) in other {
+            bounds[trait, default: []].append(contentsOf: tys)
+        }
+
+        return bounds
+    }
+
+    func tys() -> [Ty] {
+        return self.values.flatMap({ $0 })
+    }
+}
+
 let primitiveTypes = Set(["num", "str", "bool", "unit", "Tuple", "Array", "Map", "Iterator"])
 
+typealias Subst = Ref<[TyVarId:Ty]>
+
+extension Ref<TyVar> {
+    func linkTo(_ ty: Ty, _ subst: Subst? = nil) {
+        switch self.ref {
+        case let .unbound(id, _, _):
+            if let subst = subst {
+                subst.ref[id] = ty
+            } else {
+                self.ref = .link(ty) 
+            }
+        case .link(_):
+            fatalError("linking to a link")
+        case .generic(_, _):
+            fatalError("linking to a generic")
+        }
+    }
+}
+
 extension TypeEnv {
-        // see https://github.com/tomprimozic/type-systems
-    func unify(_ s: Ty, _ t: Ty) throws {
+    // see https://github.com/tomprimozic/type-systems
+    func unify(_ s: Ty, _ t: Ty, subst: Subst? = nil) throws {
         let startingEq = (s, t)
         var eqs = [(s, t)]
         
         while let (s, t) = eqs.popLast() {
+            if globalParameters.showUnification {
+                print("unify \(s) with \(t)")
+            }
+
             if s != t {
                 switch (s, t) {
                 case let (.const(f, args1), .const(g, args2)) where f == g && args1.count == args2.count:
@@ -511,17 +784,18 @@ extension TypeEnv {
                     eqs.append((ret1, ret2))
                 case let (.variable(v), ty), let (ty, .variable(v)):
                     switch v.ref {
-                    case let .unbound(id, lvl):
-                        if case let .variable(v2) = ty, case let .unbound(id2, _) = v2.ref, id2 == id {
+                    case let .unbound(id, lvl, traits):
+                        if case let .variable(v2) = ty, case let .unbound(id2, _, _) = v2.ref, id2 == id {
                             assertionFailure("There should only be one instance of a particular type variable.")
                         }
                         
                         try occursCheckAdjustLevels(id: id, level: lvl, ty: ty)
-                        
-                        v.ref = .link(ty)
+                        try propagateTraits(traits: traits.ref, ty: ty, level: lvl) 
+
+                        v.linkTo(ty, subst)
                     case let .link(to):
                         eqs.append((to, ty))
-                    case .generic(_):
+                    case .generic(_, _):
                         throw TypeError.cannotUnify(startingEq, failedWith: (s, t))
                     }
                 case let (.record(r1), .record(r2)):
@@ -530,13 +804,13 @@ extension TypeEnv {
                         break
                     case let (.extend(field1, ty1, tail1), .extend(_, _, _)):
                         let isTailUnbound: Bool
-                        if case let .variable(v) = tail1, case .unbound(_, _) = v.ref {
+                        if case let .variable(v) = tail1, case .unbound(_, _, _) = v.ref {
                             isTailUnbound = true
                         } else {
                             isTailUnbound = false
                         }
                         
-                        let tail2 = try rewriteRow(t, field: field1, ty: ty1)
+                        let tail2 = try rewriteRow(t, field: field1, ty: ty1, subst: subst)
                         
                         if isTailUnbound, case let .variable(v) = tail1, case .link(_) = v.ref {
                             throw TypeError.recursiveType(.record(r1), .record(r2))
@@ -553,7 +827,7 @@ extension TypeEnv {
         }
     }
     
-    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty) throws -> Ty {
+    fileprivate func rewriteRow(_ row2: Ty, field: String, ty: Ty, subst: Subst?) throws -> Ty {
         switch row2 {
         case .record(let row):
             switch row {
@@ -569,19 +843,19 @@ extension TypeEnv {
                     .extend(
                         field: field2,
                         ty: ty2,
-                        tail: try rewriteRow(tail2, field: field, ty: ty)
+                        tail: try rewriteRow(tail2, field: field, ty: ty, subst: subst)
                     )
                 )
             }
         case .variable(let v):
             switch v.ref {
-            case let .unbound(_, level):
+            case let .unbound(_, level, _):
                 let tail2 = Ty.fresh(level: level)
                 let row2 = Row.extend(field: field, ty: ty, tail: tail2)
-                v.ref = .link(.record(row2))
+                v.linkTo(.record(row2), subst)
                 return tail2
             case let .link(to):
-                return try rewriteRow(to, field: field, ty: ty)
+                return try rewriteRow(to, field: field, ty: ty, subst: subst)
             default:
                 break
             }
@@ -591,6 +865,76 @@ extension TypeEnv {
         
         throw TypeError.expectedRecordType(row2)
     }
+
+    // from "Implementing Type Classes" by John Peterson and Mark Jones
+    // trait Show { fun show(self: Self): str }
+    // impl Show for a[] where a: Show { fun show(elems): str { ... } }
+    // impl Show for num { fun show(n): str { ... } }
+    // [1, 2, 3].show()
+    // instantiateTyVar(a Show, num[]) -> num: Show 
+    // propagateTraits(traits: [Show], ty: num[])
+    // propagateTraitTyContext(trait: Show, ty: num[])
+    // findTraitImplContext(trait: Show, ty: num[])
+    // propagateTraits(traits: [Show], ty: num)
+    // propagateTraitTyContext(trait: Show, ty: num)
+    // findTraitImplContext(trait: Show, ty: num)
+
+    func findTraitImplContext(trait: String, ty: Ty, level: UInt) throws -> [TyVar.Context]? {
+        if let impls = traitImpls[trait] {
+            for (implementee, context, _) in impls {
+                let inst = try implementee.instantiate(level: level, env: self)
+                let inst2 = try ty.instantiate(level: level, env: self)
+                let subst = unifyPure(inst.ty, inst2.ty)
+                if subst != nil {
+                    return ty.subTypes().map({ subTy in
+                        let subTyVars = subTy.unboundVars()
+                        let subTyTraits = context
+                            .filter({ subTyVars.contains($0.key) })
+                            .values
+                            .flatMap({ $0 })
+
+                        return subTyTraits
+                    }) 
+                }
+            }
+        }
+
+        return nil
+    }
+
+    func propagateTraits(traits: TyVar.Context, ty: Ty, level: UInt) throws {
+        if case let .variable(v) = ty.deref(), case let .unbound(_, _, context) = v.ref {
+            for trait in traits {
+                if !context.ref.contains(trait) {
+                    context.ref.append(trait)
+                } 
+            }
+        } else {
+            for trait in traits { 
+                try propagateTraitTyContext(trait: trait, ty: ty, level: level)
+            }
+        }
+    }
+
+    func propagateTraitTyContext(trait: String, ty: Ty, level: UInt) throws {
+        if let s = try findTraitImplContext(trait: trait, ty: ty, level: level) {
+            for (k, subTy) in zip(s, ty.subTypes()) {
+                try propagateTraits(traits: k, ty: subTy, level: level)
+            }
+        } else {
+            throw TypeError.noTraitImplForType(trait: trait, ty: ty)
+        }
+    }
+
+    func unifyPure(_ s: Ty, _ t: Ty) -> Subst? {
+        do {
+            let subst: Subst = Ref([:])
+            try unify(s, t, subst: subst)
+            return subst
+        } catch {
+            return nil
+        }
+    }
 }
 
 extension Ty {
@@ -598,8 +942,9 @@ extension Ty {
         switch self {
         case let .variable(v):
             switch v.ref {
-            case let .unbound(id, lvl) where lvl > level:
-                return .variable(Ref(.generic(id)))
+            case let .unbound(id, lvl, traits) where lvl > level:
+                return .variable(Ref(.generic(id, context: traits)))
+
             case let .link(to):
                 return to.generalize(level: level)
             default:
@@ -614,35 +959,38 @@ extension Ty {
         }
     }
     
-    func instantiate(level: UInt) -> Ty {
-        var idVarMap = [TyVarId:Ty]()
+    func instantiate(level: UInt, env: TypeEnv) throws -> (ty: Ty, subst: [TyVarId:Ty]) {
+        var subst = [TyVarId:Ty]()
         
-        func go(_ ty: Ty) -> Ty {
+        func go(_ ty: Ty) throws -> Ty {
             switch ty {
             case let .const(name, args):
-                return .const(name, args.map(go))
+                return .const(name, try args.map(go))
             case let .variable(v):
                 switch v.ref {
                 case let .link(to):
-                    return go(to)
-                case .unbound(_, _):
+                    return try go(to)
+                case let .unbound(_, _, traits):
+                    try env.propagateTraits(traits: traits.ref, ty: ty, level: level)
                     return ty
-                case let .generic(id):
-                    if let inst = idVarMap[id] {
+                case let .generic(id, traits):
+                    if let inst = subst[id] {
+                        try env.propagateTraits(traits: traits.ref, ty: inst, level: level)
                         return inst
                     } else {
                         let inst = Ty.fresh(level: level)
-                        idVarMap[id] = inst
+                        try env.propagateTraits(traits: traits.ref, ty: inst, level: level)
+                        subst[id] = inst
                         return inst
                     }
                 }
             case let .fun(args, ret):
-                return .fun(args.map(go), go(ret))
+                return .fun(try args.map(go), try go(ret))
             case let .record(row):
-                return .record(row.map(types: go))
+                return .record(try row.map(types: go))
             }
         }
         
-        return go(self)
+        return (try go(self), subst)
     }
 }

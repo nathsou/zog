@@ -7,12 +7,26 @@
 
 import Foundation
 
+// Type class placeholders
+// see https://www.researchgate.net/publication/2683816_Implementing_Type_Classes
+enum Placeholder: CustomStringConvertible {
+    case Trait(trait: String, ty: Ty)
+    case Method(trait: String, method: String, subjectTy: Ty)
+
+    var description: String {
+        switch self {
+        case let .Trait(trait, ty): return "<\(trait), \(ty)>"
+        case let .Method(trait, method, subjectTy): return "<\(trait).\(method), \(subjectTy)>"
+        }
+    }
+}
+
 indirect enum CoreExpr {
     case Literal(Literal, ty: Ty)
     case UnaryOp(UnaryOperator, CoreExpr, ty: Ty)
     case BinaryOp(CoreExpr, BinaryOperator, CoreExpr, ty: Ty)
     case Parens(CoreExpr, ty: Ty)
-    case Var(String, ty: Ty)
+    case Var(String, placeholders: Ref<[Placeholder]> = Ref([]), ty: Ty)
     case Fun(modifier: FunModifier, args: [(CorePattern, Ty?)], retTy: Ty?, body: CoreExpr, ty: Ty)
     case Call(f: CoreExpr, args: [CoreExpr], ty: Ty)
     case Block([CoreStmt], ret: CoreExpr?, ty: Ty)
@@ -27,6 +41,7 @@ indirect enum CoreExpr {
     case Match(CoreExpr, cases: [(pattern: CorePattern, action: CoreExpr)], ty: Ty)
     case Switch(CoreExpr, cases: [(CoreExpr, CoreExpr)], defaultCase: CoreExpr?, ty: Ty)
     case Variant(enumName: Ref<String?>, variantName: String, val: CoreExpr?, ty: Ty)
+    case MethodCall(subject: CoreExpr, method: String, args: [CoreExpr], placeholder: Ref<Placeholder?> = Ref(nil), ty: Ty)
     case BuiltInCall(String, [CoreExpr], ty: Ty)
     
     public var ty: Ty {
@@ -35,7 +50,7 @@ indirect enum CoreExpr {
         case .UnaryOp(_, _, let ty): return ty
         case .BinaryOp(_, _, _, let ty): return ty
         case .Parens(_, let ty): return ty
-        case .Var(_, let ty): return ty
+        case .Var(_, _, let ty): return ty
         case .Fun(_, _, _, _, let ty): return ty
         case .Call(_, _, let ty): return ty
         case .Block(_, _, let ty): return ty
@@ -50,6 +65,7 @@ indirect enum CoreExpr {
         case .Match(_, _, let ty): return ty
         case .Switch(_, _, _, let ty): return ty
         case .Variant(_, _, _, let ty): return ty
+        case .MethodCall(_, _, _, _, let ty): return ty
         case .BuiltInCall(_, _, let ty): return ty
         }
     }
@@ -137,6 +153,13 @@ extension Expr {
                 val: val.map({ $0.core(ctx, lvl) }),
                 ty: ty()
             )
+        case let .MethodCall(subject, method, args):
+            return .MethodCall(
+                subject: subject.core(ctx, lvl),
+                method: method,
+                args: args.map({ $0.core(ctx, lvl) }),
+                ty: ty()
+            )
         case let .BuiltInCall("show", args) where args.count == 1:
             return .Literal(.str("\(args[0])"), ty: .str)
         case let .BuiltInCall(name, args):
@@ -197,6 +220,7 @@ enum CoreDecl {
     case Enum(pub: Bool, name: String, args: [TyVarId], variants: [(name: String, ty: Ty?)])
     case Declare(pub: Bool, name: String, ty: Ty)
     case Import(path: String, members: [String]?)
+    case Error(ParserError, span: (Int, Int))
 }
 
 extension Decl {
@@ -209,7 +233,7 @@ extension Decl {
         case let .TypeAlias(pub, name, args, ty):
             return .TypeAlias(pub: pub, name: name, args: args, ty: ty)
         case let .Fun(pub, modifier, name, args, retTy, body):
-            let funTy = Ty.fun(args.map({ $0.1 ?? .fresh(level: lvl) }), retTy ?? .fresh(level: lvl))
+            let funTy = Ty.fun(args.map({ $0.1 ?? .fresh(level: lvl + 1) }), retTy ?? .fresh(level: lvl + 1))
             return .Let(
                 pub: pub,
                 mut: false,
@@ -234,9 +258,74 @@ extension Decl {
                 for (ruleName, info) in mod.rewritingRules {
                     ctx.env.declareRule(name: ruleName, args: info.args, rhs: info.rhs, pub: false)
                 }
+                
+                if let members {
+                    var newMembers = Array(members)
+                    
+                    for member in members {
+                        if mod.traits.keys.contains(member) {
+                            if let impls = mod.traitImpls[member] {
+                                for impl in impls {
+                                    newMembers.append(impl.dict)
+                                }
+                            }
+                        }
+                    }
+                    
+                    return .Import(path: path, members: newMembers)
+                }
             }
 
             return .Import(path: path, members: members)
+        case let .Trait(_, name, members):
+            let subjectTyVarId = TyContext.nextTyVarId
+            let subjectTy = Ty.variable(Ref(TyVar.unbound(id: subjectTyVarId, level: lvl + 1)))
+            let replaceSelf = { (ty: Ty) in ty.rewrite({ t in
+                if case .const("Self", []) = t {
+                    return subjectTy
+                } else {
+                    return t
+                }
+            })}
+            
+            return ctx.env.declareTrait(
+                name: name,
+                subjectTy: subjectTy,
+                methods: Dictionary(uniqueKeysWithValues: members.map({ method in
+                    let ty = replaceSelf(.fun(method.args.map({ $0.1 }), method.ret))
+                    return (method.name, (ty, false))
+                })),
+                pub: false,
+                level: lvl
+            )
+        case let .TraitImpl(trait, _, methods):
+            let freshTy = Ty.fresh(level: lvl + 1)
+            let implTy = Ty.const(trait, [freshTy])
+            let dict = "$impl\(trait)_\(freshTy.tyVarId()!)"
+            ctx.env.declareTraitImpl(trait: trait, dict: dict, implementee: freshTy, context: [:])
+            
+            return .Let(
+                pub: true,
+                mut: false,
+                pat: .variable(dict),
+                ty: implTy,
+                val: .Record(
+                    methods.map({ method in (
+                        method.name,
+                        .Fun(
+                            modifier: method.modifier,
+                            args: method.args.map({ (pat, ty) in (pat.core(), ty) }),
+                            retTy: method.ret,
+                            body: method.body.core(ctx, lvl + 1),
+                            ty: .fresh(level: lvl + 1)
+                        )
+                    ) }),
+                    ty: implTy
+                )
+            )
+
+        case let .Error(err, span):
+            return .Error(err, span: span)
         }
     }
 }
@@ -272,7 +361,7 @@ enum CorePattern: CustomStringConvertible {
                 if case let .const("Tuple", tys) = ann?.deref() {
                     elemTys = tys
                 } else {
-                    elemTys = patterns.map({ _ in nil })
+                    elemTys = patterns.map({ _ in Ty.fresh(level: level) })
                 }
                 
                 return .tuple(try zip(patterns, elemTys).map({ (pat, ty) in try go(pat, ty)}))

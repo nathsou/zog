@@ -1,11 +1,18 @@
 import Foundation
 
+public var globalParameters = (
+    showTypes: false,
+    showUnification: false
+)
+
 @main
 public struct zog {
     public static func main() {
         if CommandLine.arguments.count > 1 {
             do {
                 let sourceFile = CommandLine.arguments[1]
+                globalParameters.showTypes = CommandLine.arguments.contains("--show-types")
+                globalParameters.showUnification = CommandLine.arguments.contains("--show-unification")
                 let resolver = Resolver() 
                 _ = try resolver.resolve(path: sourceFile, level: 0)
             } catch let error as ParserError {
