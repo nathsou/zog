@@ -258,10 +258,26 @@ extension Decl {
                 for (ruleName, info) in mod.rewritingRules {
                     ctx.env.declareRule(name: ruleName, args: info.args, rhs: info.rhs, pub: false)
                 }
+                
+                if let members {
+                    var newMembers = Array(members)
+                    
+                    for member in members {
+                        if mod.traits.keys.contains(member) {
+                            if let impls = mod.traitImpls[member] {
+                                for impl in impls {
+                                    newMembers.append(impl.dict)
+                                }
+                            }
+                        }
+                    }
+                    
+                    return .Import(path: path, members: newMembers)
+                }
             }
 
             return .Import(path: path, members: members)
-        case let .Trait(pub, name, members):
+        case let .Trait(_, name, members):
             let subjectTyVarId = TyContext.nextTyVarId
             let subjectTy = Ty.variable(Ref(TyVar.unbound(id: subjectTyVarId, level: lvl + 1)))
             let replaceSelf = { (ty: Ty) in ty.rewrite({ t in
@@ -271,36 +287,27 @@ extension Decl {
                     return t
                 }
             })}
-
-            let traitTy = replaceSelf(Ty.record(Row.from(
-                entries: members.map({ method in
-                    (method.name, replaceSelf(.fun(method.args.map({ $0.1 }), method.ret)))
-                })
-            )))
-
-            let ta = CoreDecl.TypeAlias(pub: pub, name: name, args: [subjectTyVarId], ty: traitTy)
-            ctx.env.declareTrait(
+            
+            return ctx.env.declareTrait(
                 name: name,
                 subjectTy: subjectTy,
                 methods: Dictionary(uniqueKeysWithValues: members.map({ method in
                     let ty = replaceSelf(.fun(method.args.map({ $0.1 }), method.ret))
                     return (method.name, (ty, false))
                 })),
-                pub: false
+                pub: false,
+                level: lvl
             )
-            
-            return ta
-        
         case let .TraitImpl(trait, _, methods):
             let freshTy = Ty.fresh(level: lvl + 1)
             let implTy = Ty.const(trait, [freshTy])
-            ctx.env.declareTraitImpl(trait: trait, implementee: freshTy, context: [:])
-            let name = "$impl\(trait)\((ctx.env.traitImpls[trait] ?? []).count)"
+            let dict = "$impl\(trait)_\(freshTy.tyVarId()!)"
+            ctx.env.declareTraitImpl(trait: trait, dict: dict, implementee: freshTy, context: [:])
             
             return .Let(
                 pub: true,
                 mut: false,
-                pat: .variable(name),
+                pat: .variable(dict),
                 ty: implTy,
                 val: .Record(
                     methods.map({ method in (

@@ -16,8 +16,11 @@ enum ResolverError: Error, CustomStringConvertible {
 
 class Module {
     let name: String
+    let imports: [String:(members: [(name: String, alias: String?)], module: Module)]
     let members: [String:TypeEnv.VarInfo] 
     let typeAliases: [String:TypeEnv.AliasInfo]
+    let traits: [String:TypeEnv.TraitInfo]
+    let traitImpls: [String:[TypeEnv.TraitImplInfo]]
     let enums: [String:TypeEnv.EnumInfo]
     let decls: [CoreDecl]
     let rewritingRules: [String:TypeEnv.RewritingRuleInfo]
@@ -25,17 +28,20 @@ class Module {
     let ty: Ty
 
     init(name: String, env: TypeEnv, decls: [CoreDecl], level: UInt) {
-       self.name = name
-       self.env = env
-       members = env.vars.filter({ $0.value.pub }) 
-       typeAliases = env.aliases.filter({ $0.value.pub })
-       enums = env.enums.filter({ $0.value.pub })
-       rewritingRules = env.rewritingRules.filter({ $0.value.pub })
-       self.decls = decls
-       let mappingFunc = { (id: UInt) in Ty.fresh(level: level) }
-       ty = .record(.from(entries: members.map({ (name, info) in
-                (name, info.ty.substitute(mappingFunc: mappingFunc))
-            })))
+        self.name = name
+        self.env = env
+        imports = [:]
+        members = env.vars.filter({ $0.value.pub })
+        typeAliases = env.aliases.filter({ $0.value.pub })
+        traits = env.traits
+        traitImpls = env.traitImpls
+        enums = env.enums.filter({ $0.value.pub })
+        rewritingRules = env.rewritingRules.filter({ $0.value.pub })
+        self.decls = decls
+        let mappingFunc = { (id: UInt) in Ty.fresh(level: level) }
+        ty = .record(.from(entries: members.map({ (name, info) in
+            (name, info.ty.substitute(mappingFunc: mappingFunc))
+        })))
     }
 
     func serialize() throws -> String {
@@ -118,7 +124,7 @@ class Resolver {
 
         let moduleName = String(fileName.split(separator: ".").first!)
         let mod = Module(name: moduleName, env: ctx.env, decls: core, level: level)
-        modules[path] = mod
+        modules[absolutePath] = mod
 
         try fileManager.createModuleFile(module: mod)
 

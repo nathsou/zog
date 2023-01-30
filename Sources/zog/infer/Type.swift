@@ -58,7 +58,7 @@ class TypeEnv: CustomStringConvertible {
     typealias EnumInfo = (args: [TyVarId], variants: EnumVariants, pub: Bool)
     typealias RewritingRuleInfo = (args: [String], rhs: Expr, pub: Bool)
     typealias TraitInfo = (subjectTy: Ty, methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool)
-    typealias TraitImplInfo = (implementee: Ty, context: [TyVarId:TyVar.Context])
+    typealias TraitImplInfo = (implementee: Ty, context: [TyVarId:TyVar.Context], dict: String)
     
     let parent: TypeEnv?
     let depth: Int
@@ -92,11 +92,28 @@ class TypeEnv: CustomStringConvertible {
     func contains(_ name: String) -> Bool {
         return lookup(name) != nil
     }
+
+    func rename(_ name: String) -> String {
+        if !contains(name) {
+            return name
+        }
+
+        var i = 0
+
+        while true {
+            let newName = "\(name)$\(i)"
+            if !contains(newName) {
+                return newName
+            }
+            i += 1
+        }
+
+    }
     
     func declare(_ name: String, ty: Ty, pub: Bool = false) throws {
-        guard vars[name] == nil else {
-            throw TypeError.cannotRedeclareVariable(name)
-        }
+       guard vars[name] == nil else {
+           throw TypeError.cannotRedeclareVariable(name)
+       }
         
         vars[name] = (ty, pub)
     }
@@ -160,7 +177,13 @@ class TypeEnv: CustomStringConvertible {
         return rewritingRules.keys.contains(name)
     }
 
-    func declareTrait(name: String, subjectTy: Ty, methods: [String:(ty: Ty, isStatic: Bool)], pub: Bool) {
+    func declareTrait(
+        name: String,
+        subjectTy: Ty,
+        methods: [String:(ty: Ty, isStatic: Bool)],
+        pub: Bool,
+        level: UInt
+    ) -> CoreDecl {
         traits[name] = (subjectTy, methods, pub)
 
         for method in methods.keys {
@@ -170,17 +193,28 @@ class TypeEnv: CustomStringConvertible {
                 traitMethods[method]!.append(name)
             }
         }
+        
+        let traitTy = Ty.record(Row.from(entries: methods.map({ (method, info) in
+            (method, info.ty)
+        })))
+        
+        let ta = CoreDecl.TypeAlias(pub: pub, name: name, args: [subjectTy.tyVarId()!], ty: traitTy)
+        
+        declareAlias(name: name, args: [subjectTy.tyVarId()!], ty: traitTy, pub: pub, level: level)
+        
+        return ta
     }
 
     func lookupTrait(_ name: String) -> TraitInfo? {
         return traits[name]
     }
 
-    func declareTraitImpl(trait: String, implementee: Ty, context: [TyVarId:TyVar.Context]) {
+    func declareTraitImpl(trait: String, dict: String, implementee: Ty, context: [TyVarId:TyVar.Context]) {
+        let info = TraitImplInfo(implementee: implementee, context: context, dict: dict)
         if traitImpls[trait] == nil {
-            traitImpls[trait] = [TraitImplInfo(implementee: implementee, context: context)]
+            traitImpls[trait] = [info]
         } else {
-            traitImpls[trait]!.append(TraitImplInfo(implementee: implementee, context: context))
+            traitImpls[trait]!.append(info)
         }
     }
 
@@ -406,7 +440,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
             switch ty {
             case let .variable(tyVar):
                 switch tyVar.ref {
-                case let .unbound(id, level, traits):
+                case let .unbound(id, _, traits):
                     if !traits.ref.isEmpty {
                         if tyVarTraits.keys.contains(id) {
                             for trait in traits.ref {
@@ -417,7 +451,7 @@ indirect enum Ty: Equatable, CustomStringConvertible {
                         }
                     }
 
-                    return "\(canonicalized(id))_\(level)"
+                    return canonicalized(id)
                 case let .link(to):
                     return go(to)
                 case let .generic(id, traits):
@@ -847,7 +881,7 @@ extension TypeEnv {
 
     func findTraitImplContext(trait: String, ty: Ty, level: UInt) throws -> [TyVar.Context]? {
         if let impls = traitImpls[trait] {
-            for (implementee, context) in impls {
+            for (implementee, context, _) in impls {
                 let inst = try implementee.instantiate(level: level, env: self)
                 let inst2 = try ty.instantiate(level: level, env: self)
                 let subst = unifyPure(inst.ty, inst2.ty)

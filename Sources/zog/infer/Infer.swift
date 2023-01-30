@@ -494,7 +494,7 @@ extension CoreDecl {
         case let .Declare(pub, name, ty):
             try ctx.env.declare(name, ty: ty.generalize(level: level), pub: pub)
         case let .Import(path, members):
-            if let mod = ctx.resolver.modules[path] {
+            if let mod = try ctx.resolver.resolve(path: path, level: level) {
                 for member in members! {
                     if let info = mod.members[member] {
                         try ctx.env.declare(member, ty: info.ty, pub: false)
@@ -505,6 +505,31 @@ extension CoreDecl {
                             variants: info.variants.variants,
                             pub: false
                         )
+                    } else if let trait = mod.traits[member] {
+                        let _ = ctx.env.declareTrait(
+                            name: member,
+                            subjectTy: trait.subjectTy,
+                            methods: trait.methods,
+                            pub: false,
+                            level: level
+                        )
+                        
+                        if let impls = mod.traitImpls[member] {
+                            for impl in impls {
+                                let dictName = impl.dict
+                                if !ctx.env.contains(dictName) {
+                                    ctx.env.declareTraitImpl(
+                                        trait: member,
+                                        dict: dictName,
+                                        implementee: impl.implementee,
+                                        context: impl.context
+                                    )
+                                    
+                                    // let dictVar = mod.members[impl.dict]!
+                                    // try ctx.env.declare(dictName, ty: dictVar.ty, pub: false)
+                                }
+                            }
+                        }
                     } else if let info = mod.typeAliases[member] {
                         ctx.env.declareAlias(name: member, args: info.args, ty: info.ty, pub: false, level: level)
                     } else if ctx.env.containsRule(member) {

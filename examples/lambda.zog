@@ -1,4 +1,4 @@
-import "../std/foundation.zog" { print, raise, Option }
+import "../std/foundation.zog" { print, raise, Option, Show }
 import "../std/map.zog" { initMap, clone, has, get, set }
 
 enum BinOp { Add, Sub, Mul, Div, Equ, Neq, Lss, Gtr, Leq, Geq }
@@ -20,6 +20,17 @@ enum Value {
     Bool(bool)
     Closure { arg: str, body: Expr, env: Env }
     RecClosure { name: str, arg: str, body: Expr, env: Env }
+}
+
+impl Show for Value {
+    fun show(val: Value) {
+        match val {
+            Num(n) => n.show()
+            Bool(q) => q.show()
+            Closure {} => "<closure>"
+            RecClosure { name } => "<closure " ++ name ++ ">"
+        }
+    }
 }
 
 type Env = Map<str, Value>
@@ -103,3 +114,4 @@ let fact = n => LetRec {
 }
 
 print(fact(17)->eval(env))
+

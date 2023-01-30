@@ -32,6 +32,12 @@ class CoreContext {
         self.traitImpls = parent?.traitImpls ?? [:]
         self.traitMethods = parent?.traitMethods ?? [:]
         self.traitDicts = parent?.traitDicts ?? [:]
+        
+        if parent == nil {
+            for (trait, impls) in env.traitImpls {
+                traitImpls[trait] = impls.map({ impl in (impl.implementee, impl.dict) })
+            }
+        }
     }
     
     func child() -> CoreContext {
@@ -153,7 +159,7 @@ class CoreContext {
                 let dict = try resolveTraitDict(trait: trait, ty: subjectTy)
 
                 guard let dict = dict else {
-                    fatalError("No dictionary for \(trait) \(subjectTy)), dicts: \(traitImpls)")
+                    fatalError("No dictionary for \(trait) \(subjectTy), dicts: \(traitImpls)")
                 }
 
                 return JSExpr.objectAccess(dict, field: method)
@@ -545,7 +551,7 @@ extension CorePattern {
     func codegen(_ ctx: CoreContext) throws -> JSExpr {
         switch self {
         case .any:
-            return .variable(ctx.declare("_"))
+            return .variable(ctx.declareMeta("_"))
         case let .variable(name):
             return .variable(ctx.declare(name))
         case .literal(_), .variant(_, _, _):

@@ -1,25 +1,6 @@
+import "../std/foundation.zog" { print, Show }
 import "../std/array.zog" { map }
 import "../std/string.zog" { join }
-
-declare console: { log: _ => () }
-
-trait Show {
-    fun show(x: Self): str
-}
-
-let showNum: num => str = raw { n => String(n) }
-
-impl Show for num {
-    fun show(n)  {
-        showNum(n)
-    }
-}
-
-impl Show for str {
-    fun show(s) {
-        s
-    }
-}
 
 impl Show for (a, b) {
     fun show((x, y)) {
@@ -33,7 +14,9 @@ impl Show for a[] {
     }
 }
 
-(console.log)((23, "yo").show())
-(console.log)(("yo", 23).show())
-(console.log)([2, 3, 5, 7, 11, 13, 17, 19, 23, 27].show())
-(console.log)(["a", "b", "c"].show())
+print((23, "yo"))
+print(("yo", 23))
+print([2, 3, 5, 7, 11, 13, 17, 19, 23, 29])
+print(["a", "b", "c"])
+print([[1], [2]])
+print((1, (2, (3, (4, (5, (6, 7)))))))
